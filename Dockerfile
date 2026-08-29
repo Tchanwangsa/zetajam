@@ -2,10 +2,14 @@
 # hold a connection open — Cloud Run is what this is aimed at.
 FROM node:22-alpine AS web
 WORKDIR /app
-COPY web/package*.json web/
-RUN cd web && npm ci
+# pnpm, not npm: pnpm-lock.yaml is the lockfile this project actually updates,
+# and it is what Vercel builds the page from. An npm lockfile alongside it only
+# drifts, and `npm ci` fails on the drift.
+RUN npm install -g pnpm@10
+COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml web/
+RUN cd web && pnpm install --frozen-lockfile
 COPY web web
-RUN cd web && npm run build
+RUN cd web && pnpm run build
 
 FROM golang:1.22-alpine AS go
 WORKDIR /app
