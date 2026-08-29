@@ -12,12 +12,18 @@ export interface MatchResult {
   flagged?: boolean
 }
 
+/** One row of the spectate list. Names and scores are parallel, in match order. */
 export interface GameInfo {
   id: string
-  n1: string
-  n2: string
-  s1: number
-  s2: number
+  names: string[]
+  scores: number[]
+}
+
+export interface RoomInfo {
+  code: string
+  hostId: string
+  members: PlayerInfo[]
+  cfg: Config
 }
 
 export type Msg =
@@ -27,21 +33,37 @@ export type Msg =
       t: 'match'
       seed: number
       /** Normalized by the server. This, not the local copy, is what the
-          question generator runs on — both sides of a match use it verbatim. */
+          question generator runs on — every side of a match uses it verbatim. */
       cfg: Config
       durMs: number
       startsInMs: number
-      you: PlayerInfo
-      opp?: PlayerInfo
+      /** Absent for a spectator, who is not one of the players. */
+      you?: PlayerInfo
+      /** Everyone in the run, in the order scores should be laid out. */
+      players: PlayerInfo[]
       spectating?: boolean
     }
-  | { t: 'score'; id: string; score: number; ms: number }
+  // Numbers here are optional because the server drops a zero-valued field
+  // rather than sending it — see the `omitempty` note in App.svelte.
+  | { t: 'score'; id: string; score?: number; ms?: number }
   | { t: 'end'; results: MatchResult[]; best?: MatchResult }
-  | { t: 'online'; online: number; playing: number }
+  | { t: 'online'; online?: number; playing?: number }
   | { t: 'games'; games: GameInfo[] }
+  | { t: 'room'; room: RoomInfo }
+  | { t: 'room.gone'; msg: string }
   | { t: 'err'; msg: string }
 
+/**
+ * Where the hub is. Same origin in development and in the single-binary build;
+ * VITE_WS_URL when the frontend is hosted apart from the server — a static host
+ * for the page, Cloud Run for the socket. The server has to name that origin
+ * back, see ORIGINS in server/main.go.
+ */
 function wsURL(): string {
+  const explicit = import.meta.env.VITE_WS_URL
+  if (explicit) {
+    return explicit.replace(/^http/, 'ws').replace(/\/$/, '') + '/ws'
+  }
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
   return `${proto}//${location.host}/ws`
 }

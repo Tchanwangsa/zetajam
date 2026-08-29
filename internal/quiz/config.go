@@ -11,6 +11,11 @@ import (
 // same random draw, so reordering it would change every question stream.
 var Ops = [4]string{"add", "sub", "mul", "div"}
 
+// Forward are the only two operations that carry ranges of their own.
+// Subtraction is an addition read backwards and division a multiplication read
+// backwards, so they inherit — see Normalize.
+var Forward = [2]string{"add", "mul"}
+
 // A Range is [lo1, hi1, lo2, hi2] — inclusive bounds for the two operands the
 // generator draws for one operation.
 type Range [4]int
@@ -30,8 +35,8 @@ type Config struct {
 
 const (
 	maxTerm   = 9999
-	minDurSec = 10
-	maxDurSec = 600
+	MinDurSec = 10
+	MaxDurSec = 600
 )
 
 // Default is the classic setup: all four operations, two-digit terms, a small
@@ -52,6 +57,12 @@ func Default() Config {
 // Normalize clamps a client-supplied config into something the generator can
 // safely run: canonical operation order, non-empty, non-inverted ranges, and
 // no zero divisor. Every config reaches At through here.
+//
+// It also makes the inverse pairs literally inverse. The settings panel offers
+// two ranges, not four — "subtraction: addition problems in reverse" — and a
+// client is not the right place to enforce that, because a hand-rolled one
+// could send four independent ranges and end up generating a stream nobody
+// agreed to. So sub takes add's range and div takes mul's, here, once.
 func (c Config) Normalize() Config {
 	def := Default()
 	out := Config{Ranges: map[string]Range{}, DurSec: c.DurSec}
@@ -69,16 +80,13 @@ func (c Config) Normalize() Config {
 		out.Ops = def.Ops
 	}
 
-	for _, op := range Ops {
+	for _, op := range Forward {
 		r, ok := c.Ranges[op]
 		if !ok {
 			r = def.Ranges[op]
 		}
 		lo1, hi1 := clampTerm(r[0]), clampTerm(r[1])
 		lo2, hi2 := clampTerm(r[2]), clampTerm(r[3])
-		if op == "div" && lo1 < 1 {
-			lo1 = 1 // this operand becomes the divisor
-		}
 		if hi1 < lo1 {
 			hi1 = lo1
 		}
@@ -88,11 +96,24 @@ func (c Config) Normalize() Config {
 		out.Ranges[op] = Range{lo1, hi1, lo2, hi2}
 	}
 
-	if out.DurSec < minDurSec {
-		out.DurSec = minDurSec
+	out.Ranges["sub"] = out.Ranges["add"]
+
+	// The first multiplication operand becomes the divisor, and the one value
+	// it cannot take is zero.
+	div := out.Ranges["mul"]
+	if div[0] < 1 {
+		div[0] = 1
+		if div[1] < div[0] {
+			div[1] = div[0]
+		}
 	}
-	if out.DurSec > maxDurSec {
-		out.DurSec = maxDurSec
+	out.Ranges["div"] = div
+
+	if out.DurSec < MinDurSec {
+		out.DurSec = MinDurSec
+	}
+	if out.DurSec > MaxDurSec {
+		out.DurSec = MaxDurSec
 	}
 	return out
 }

@@ -3,19 +3,19 @@
   import type { Config } from '../lib/config'
   import type { Sample } from '../lib/series'
   import type { PlayerInfo } from '../lib/net'
+  import { seats as buildSeats } from '../lib/players'
   import Graph from './Graph.svelte'
+  import Scoreboard from './Scoreboard.svelte'
 
   let {
     seed,
     cfg,
     durMs,
     startsInMs,
-    you,
-    opp,
+    players = [],
+    selfId,
+    scores = {},
     spectating = false,
-    oppScore = 0,
-    specA = 0,
-    specB = 0,
     samples = $bindable([] as Sample[]),
     onAnswer,
     onExpire,
@@ -24,12 +24,12 @@
     cfg: Config
     durMs: number
     startsInMs: number
-    you: PlayerInfo
-    opp?: PlayerInfo
+    /** Everyone in the run, in the order the graph indexes them. */
+    players?: PlayerInfo[]
+    selfId: string
+    /** Scores as the server last reported them, by player id. */
+    scores?: Record<string, number>
     spectating?: boolean
-    oppScore?: number
-    specA?: number
-    specB?: number
     samples?: Sample[]
     onAnswer: (i: number, v: number, ms: number) => void
     onExpire: () => void
@@ -42,10 +42,11 @@
   let score = $state(0)
   let phase = $state<'count' | 'live' | 'done'>('count')
 
-  // Spectators have no question stream of their own — the server only relays
-  // scores — so their two numbers come in as props instead.
-  const left = $derived(spectating ? specA : score)
-  const right = $derived(spectating ? specB : oppScore)
+  // Your own score comes from your own keyboard, not from a round trip. The
+  // others come in as `score` frames. A spectator has no keyboard in this run,
+  // so every number is somebody else's.
+  const live = $derived(spectating ? scores : { ...scores, [selfId]: score })
+  const seatList = $derived(buildSeats(players, live, spectating ? '' : selfId))
 
   // The hot path deliberately writes to these nodes by hand. Everything that
   // changes on a keystroke — the equation and the input — is one textContent
@@ -66,7 +67,7 @@
     cur = question(seed, 0, cfg)
     t0 = performance.now() + startsInMs
     nextSampleAt = 1000
-    samples = [{ t: 0, a: 0, b: 0 }]
+    samples = [{ t: 0, s: players.map(() => 0) }]
 
     let raf = requestAnimationFrame(function frame(now) {
       const ms = now - t0
@@ -87,12 +88,10 @@
           }
         } else {
           // One sample per second on a fixed clock — never on a network
-          // event. This is rule one of the graph not twitching.
+          // event. This is what keeps the graph from dancing to somebody
+          // else's typing.
           while (nextSampleAt <= ms) {
-            samples = [
-              ...samples,
-              { t: nextSampleAt / 1000, a: left, b: right },
-            ]
+            samples = [...samples, { t: nextSampleAt / 1000, s: players.map((p) => live[p.id] ?? 0) }]
             nextSampleAt += 1000
           }
         }
@@ -109,8 +108,8 @@
   })
 
   // A click anywhere on the board puts the caret back in the answer box —
-  // except on a control, so the settings panel can be used mid-run without
-  // the field yanking focus back on every click.
+  // except on a control, so the settings bar can be used mid-run without the
+  // field yanking focus back on every click.
   function refocus(e: MouseEvent) {
     if (phase !== 'live' || spectating) return
     const t = e.target as HTMLElement | null
@@ -144,22 +143,10 @@
 <svelte:window onclick={refocus} />
 
 <section class="game">
-  <div class="hud num">
-    <div class="side">
-      <span class="val">{left}</span>
-      <span class="lbl">{spectating ? you.name : 'you'}</span>
-    </div>
-    <span class="clock" bind:this={timerEl}>–:––</span>
-    <div class="side right">
-      <span class="val opp">{right}</span>
-      <span class="lbl">{opp ? opp.name : spectating ? '—' : 'solo'}</span>
-    </div>
-  </div>
+  <Scoreboard seats={seatList} bind:clock={timerEl} solo={players.length === 1} />
 
   {#if spectating}
-    <div class="spectate-note">
-      spectating — scores and pace only, not their screen
-    </div>
+    <div class="spectate-note">spectating — scores and pace only, not their screen</div>
   {:else}
     <div class="eq num" class:counting={phase === 'count'} bind:this={qEl}>…</div>
     <input
@@ -176,14 +163,7 @@
   {/if}
 
   <div class="graph">
-    <Graph
-      {samples}
-      durSec={durMs / 1000}
-      hasOpp={!!opp || spectating}
-      youName={spectating ? you.name : 'you'}
-      oppName={opp?.name ?? '—'}
-      dim={phase === 'live'}
-    />
+    <Graph {samples} durSec={durMs / 1000} seats={seatList} dim={phase === 'live'} />
   </div>
 </section>
 
@@ -194,43 +174,6 @@
     align-items: center;
     width: 100%;
     gap: 8px;
-  }
-
-  .hud {
-    display: grid;
-    grid-template-columns: 1fr auto 1fr;
-    align-items: baseline;
-    width: 100%;
-    gap: 16px;
-  }
-  .side {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-    min-width: 0;
-  }
-  .side.right {
-    justify-content: flex-end;
-  }
-  .val {
-    font-size: 30px;
-    font-weight: 600;
-    letter-spacing: -0.02em;
-    color: var(--accent);
-  }
-  .val.opp {
-    color: var(--opp);
-  }
-  .lbl {
-    font-size: 12px;
-    color: var(--muted);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .clock {
-    font-size: 15px;
-    color: var(--muted);
   }
 
   .eq {

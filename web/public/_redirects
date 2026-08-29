@@ -1,0 +1,4 @@
+# Cloudflare Pages. Room deep links are client-side routes, so /r/QK4M has to
+# serve the app rather than 404 — 200 rewrites the response without changing
+# the address bar, which is what the code in the URL is for.
+/r/*  /index.html  200

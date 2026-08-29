@@ -1,6 +1,6 @@
 BIN := bin/zetajam
 
-.PHONY: dev web server run build parity check clean
+.PHONY: dev web web-static server run build parity check clean deploy
 
 ## dev — two processes: Go on :8080, Vite on :5173 with a /ws proxy.
 dev:
@@ -14,6 +14,12 @@ server:
 web:
 	cd web && npm run build
 
+## web-static — the frontend on its own, for a static host. Needs VITE_WS_URL
+## pointing at the deployed server, because the page will not be same-origin
+## with the socket any more.
+web-static:
+	cd web && npm run build:static
+
 ## build — the whole app as one static binary with the frontend inside it.
 build: web
 	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o $(BIN) ./server
@@ -24,9 +30,11 @@ run: build
 
 ## parity — the Go and TypeScript question generators must agree exactly, or
 ## the two sides of a match would be solving different problems.
-## Checked under the default config and a custom one, because the settings
-## panel means the config is now part of what both sides must agree on.
-CFG := {"ops":["sub","div"],"ranges":{"sub":[5,900,1,60],"div":[3,17,7,250]}}
+## Checked under the default config and a custom one, because the settings bar
+## means the config is part of what both sides must agree on. The custom case
+## deliberately sets only add and mul: sub and div inherit those ranges in
+## Normalize, and this proves both mirrors inherit them identically.
+CFG := {"ops":["sub","div"],"ranges":{"add":[5,900,1,60],"mul":[3,17,7,250]}}
 
 parity:
 	@cd web && npx esbuild scripts/parity.ts --bundle --platform=node \
@@ -42,5 +50,23 @@ check: parity
 	go vet ./...
 	cd web && npm run check
 
+## deploy — Cloud Run. One instance, always warm: matches and rooms live in
+## this process's memory, so a second instance means two players can land on
+## different machines and never see each other, and a cold start drops every
+## open socket. Websockets need the timeout raised from the 5-minute default.
+SERVICE ?= zetajam
+REGION  ?= australia-southeast1
+
+deploy:
+	gcloud run deploy $(SERVICE) \
+		--source . \
+		--region $(REGION) \
+		--allow-unauthenticated \
+		--min-instances 1 \
+		--max-instances 1 \
+		--timeout 3600 \
+		--session-affinity \
+		$(if $(ORIGINS),--set-env-vars ORIGINS=$(ORIGINS),)
+
 clean:
-	rm -rf bin server/dist/assets server/dist/index.html
+	rm -rf bin web/dist server/dist/assets server/dist/index.html

@@ -6,13 +6,15 @@ import "zetajam/internal/quiz"
 //
 // The design goal is that nothing travels per keystroke. A client sends one
 // small frame per *correct answer* and nothing else, and the server sends one
-// frame back per opponent answer. A 120s match is a few dozen frames each way.
+// frame back per answer somebody else got right. A 120s match is a few dozen
+// frames each way, whether it is two players or eight.
 
 type inbound struct {
 	T    string `json:"t"`
 	Name string `json:"name,omitempty"`
 	Solo bool   `json:"solo,omitempty"`
-	ID   string `json:"id,omitempty"` // spectate target
+	ID   string `json:"id,omitempty"`   // spectate target, or kick target
+	Code string `json:"code,omitempty"` // room code
 
 	// The settings the player wants. Nil means "whatever the server runs by
 	// default". Never trusted as sent — the hub normalizes it first.
@@ -36,12 +38,21 @@ type result struct {
 	Flagged bool   `json:"flagged"`
 }
 
+// gameInfo is one row of the spectate list. Names and scores are parallel and
+// in match order, so a room of six reads the same way a duel does.
 type gameInfo struct {
-	ID string `json:"id"`
-	N1 string `json:"n1"`
-	N2 string `json:"n2"`
-	S1 int    `json:"s1"`
-	S2 int    `json:"s2"`
+	ID     string   `json:"id"`
+	Names  []string `json:"names"`
+	Scores []int    `json:"scores"`
+}
+
+// roomInfo is the whole of a private room: who is in it, who runs it, and what
+// it is set to. Sent in full on every change — it is a handful of names.
+type roomInfo struct {
+	Code    string       `json:"code"`
+	HostID  string       `json:"hostId"`
+	Members []playerInfo `json:"members"`
+	Cfg     *quiz.Config `json:"cfg"`
 }
 
 type outbound struct {
@@ -60,7 +71,7 @@ type outbound struct {
 	StartsInMs int64        `json:"startsInMs,omitempty"`
 	Cfg        *quiz.Config `json:"cfg,omitempty"`
 	You        *playerInfo  `json:"you,omitempty"`
-	Opp        *playerInfo  `json:"opp,omitempty"`
+	Players    []playerInfo `json:"players,omitempty"`
 	Spectating bool         `json:"spectating,omitempty"`
 
 	// score
@@ -70,6 +81,9 @@ type outbound struct {
 
 	// end
 	Results []result `json:"results,omitempty"`
+
+	// room
+	Room *roomInfo `json:"room,omitempty"`
 
 	// games / best / err
 	Games []gameInfo `json:"games,omitempty"`

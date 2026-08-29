@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:static": "WEB_OUT=dist vite build",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "parity": "node --experimental-strip-types scripts/parity.ts"
   },
@@ -15,5 +16,8 @@
     "svelte-check": "^4.1.4",
     "typescript": "^5.7.3",
     "vite": "^6.0.11"
+  },
+  "dependencies": {
+    "@lucide/svelte": "^1.35.0"
   }
 }

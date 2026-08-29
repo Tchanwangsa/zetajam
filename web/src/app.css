@@ -1,4 +1,10 @@
-/* zetajam — one accent, one grey, a lot of empty space. */
+/* zetajam — one accent, one grey, a lot of empty space.
+ *
+ * Everything below the tokens is shared chrome: the button, field and label
+ * styles that five components were each declaring their own copy of. Svelte
+ * scopes component styles, which is right for layout and wrong for a design
+ * system, so the design system lives here and the components keep only what is
+ * genuinely theirs. */
 
 :root {
   --bg: #fbfbfc;
@@ -10,9 +16,19 @@
   --faint: #c2c3cb;
   --accent: #b8860b;
   --accent-soft: #d8a51f;
-  --opp: #6f7c8d;
   --danger: #c0483f;
   --radius: 10px;
+
+  /* Opponent line colours, handed out in roster order. You are always the
+     accent, so these start at whoever is not you. */
+  --p1: #5f6c7d;
+  --p2: #2f8f80;
+  --p3: #7a63c9;
+  --p4: #c0567a;
+  --p5: #5c8a3c;
+  --p6: #3a7bbf;
+  --p7: #c2703a;
+  --opp: var(--p1);
 
   color-scheme: light dark;
 }
@@ -28,8 +44,15 @@
     --faint: #3c3d45;
     --accent: #e2b338;
     --accent-soft: #a8842a;
-    --opp: #7f8b9c;
     --danger: #d4635a;
+
+    --p1: #8b98a9;
+    --p2: #4bbcaa;
+    --p3: #a08ce8;
+    --p4: #e0819f;
+    --p5: #86b95f;
+    --p6: #62a6e2;
+    --p7: #e0955c;
   }
 }
 
@@ -43,8 +66,15 @@
   --faint: #3c3d45;
   --accent: #e2b338;
   --accent-soft: #a8842a;
-  --opp: #7f8b9c;
   --danger: #d4635a;
+
+  --p1: #8b98a9;
+  --p2: #4bbcaa;
+  --p3: #a08ce8;
+  --p4: #e0819f;
+  --p5: #86b95f;
+  --p6: #62a6e2;
+  --p7: #e0955c;
 }
 
 * {
@@ -97,6 +127,116 @@ input {
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+/* --- buttons ------------------------------------------------------------ */
+
+.btn {
+  height: 42px;
+  padding: 0 20px;
+  border-radius: var(--radius);
+  font-size: 14px;
+  border: 1.5px solid transparent;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease,
+    filter 140ms ease;
+}
+.btn-primary {
+  background: var(--accent);
+  color: var(--bg);
+  font-weight: 500;
+}
+.btn-primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+.btn-ghost {
+  border-color: var(--line);
+  color: var(--muted);
+}
+.btn-ghost:hover:not(:disabled) {
+  border-color: var(--faint);
+  color: var(--text);
+}
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.btn-sm {
+  height: 34px;
+  padding: 0 14px;
+  font-size: 13px;
+}
+
+/* A bare glyph that lights up on hover — the header controls, the kick ✕. */
+.btn-icon {
+  font-size: 14px;
+  color: var(--faint);
+  line-height: 1;
+  padding: 4px;
+  border-radius: 6px;
+  transition: color 140ms ease, background 140ms ease;
+}
+.btn-icon:hover:not(:disabled),
+.btn-icon.on {
+  color: var(--text);
+}
+.btn-icon:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* An underlined word doing the work of a button. */
+.btn-link {
+  font-size: 12px;
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  padding: 0;
+  transition: color 140ms ease;
+}
+.btn-link:hover:not(:disabled) {
+  color: var(--text);
+}
+.btn-link:disabled {
+  color: var(--faint);
+  cursor: default;
+  text-decoration: none;
+}
+
+/* --- fields ------------------------------------------------------------- */
+
+.field {
+  height: 44px;
+  padding: 0 14px;
+  background: var(--panel);
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius);
+  outline: none;
+  transition: border-color 140ms ease;
+}
+.field:focus {
+  border-color: var(--accent);
+}
+.field::placeholder {
+  color: var(--faint);
+}
+.field:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* --- surfaces and type -------------------------------------------------- */
+
+.surface {
+  background: var(--panel);
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.micro {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--faint);
 }
 
 @media (prefers-reduced-motion: reduce) {

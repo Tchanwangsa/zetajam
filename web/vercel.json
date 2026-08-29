@@ -1,0 +1,6 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm run build:static",
+  "outputDirectory": "dist",
+  "rewrites": [{ "source": "/r/:code", "destination": "/index.html" }]
+}

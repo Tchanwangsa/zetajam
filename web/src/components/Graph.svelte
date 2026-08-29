@@ -1,19 +1,26 @@
 <script lang="ts">
-  import { series, ratchet, smoothPath, ticks, type Sample } from '../lib/series'
+  import { ceilMax, linePath, peakOf, ticks, type Sample } from '../lib/series'
+  import type { Seat } from '../lib/players'
 
+  /**
+   * Cumulative answers over the run, one straight line per player.
+   *
+   * It plots the number on the scoreboard rather than a rate derived from it,
+   * which is what lets the lines be drawn straight: a running total is
+   * monotonic, so there is no wobble to smooth away and every kink in the line
+   * is a real thing that happened. Hand-rolled SVG — for a couple of hundred
+   * points a charting library is 60KB you do not need.
+   */
   let {
     samples = [],
     durSec = 120,
-    hasOpp = false,
-    youName = 'you',
-    oppName = 'them',
+    seats = [],
     dim = false,
   }: {
     samples?: Sample[]
     durSec?: number
-    hasOpp?: boolean
-    youName?: string
-    oppName?: string
+    /** In roster order. Index i here is index i in every sample's `s`. */
+    seats?: Seat[]
     dim?: boolean
   } = $props()
 
@@ -32,72 +39,56 @@
     return () => ro.disconnect()
   })
 
-  const you = $derived(series(samples, (s) => s.a))
-  const them = $derived(series(samples, (s) => s.b))
-
-  // The y ceiling is derived from the running peak, and because `samples` only
-  // ever grows, that peak — and therefore the axis — can only ever grow too.
-  // No shrink means no snap-back. The first two samples are skipped because a
-  // single answer in the opening second reads as an absurd per-minute rate.
-  const peak = $derived.by(() => {
-    let p = 0
-    const pools = hasOpp
-      ? [you.inst, you.avg, them.inst, them.avg]
-      : [you.inst, you.avg]
-    for (const pool of pools) {
-      for (let i = 2; i < pool.length; i++) p = Math.max(p, pool[i])
-    }
-    return p
-  })
-  const yMax = $derived(ratchet(40, peak))
-
+  const yMax = $derived(ceilMax(peakOf(samples)))
   const x = $derived((t: number) => PAD.l + (t / durSec) * (w - PAD.l - PAD.r))
   const y = $derived(
     (v: number) => H - PAD.b - (Math.min(v, yMax) / yMax) * (H - PAD.t - PAD.b),
   )
 
-  function path(values: number[]): string {
-    // Drop the warm-up samples so the curve starts where the rate is real.
-    const pts: Array<[number, number]> = []
-    for (let i = 1; i < values.length; i++) pts.push([x(samples[i].t), y(values[i])])
-    return smoothPath(pts)
-  }
+  const paths = $derived(
+    seats.map((seat, i) => ({
+      seat,
+      d: linePath(samples.map((s) => [x(s.t), y(s.s[i] ?? 0)])),
+    })),
+  )
+  // Your line goes on last so it is never buried under somebody else's.
+  const ordered = $derived([...paths].sort((a, b) => Number(a.seat.you) - Number(b.seat.you)))
 
   const yTicks = $derived(ticks(yMax))
-  const xTicks = $derived.by(() => {
-    const step = durSec / 4
-    return [0, 1, 2, 3, 4].map((i) => Math.round(i * step))
-  })
+  const xTicks = $derived([0, 1, 2, 3, 4].map((i) => Math.round((i * durSec) / 4)))
 </script>
 
 <div class="wrap" class:dim bind:this={el}>
-  <svg width={w} height={H} viewBox="0 0 {w} {H}" role="img"
-       aria-label="answers per minute over the course of the match">
-    <!-- grid -->
-    {#each yTicks as t}
+  <svg
+    width={w}
+    height={H}
+    viewBox="0 0 {w} {H}"
+    role="img"
+    aria-label="answers over the course of the match"
+  >
+    {#each yTicks as t (t)}
       <line class="grid" x1={PAD.l} x2={w - PAD.r} y1={y(t)} y2={y(t)} />
       <text class="tick" x={PAD.l - 8} y={y(t) + 3.5} text-anchor="end">{t}</text>
     {/each}
-    {#each xTicks as t}
+    {#each xTicks as t, i (i)}
       <line class="grid vert" x1={x(t)} x2={x(t)} y1={PAD.t} y2={H - PAD.b} />
       <text class="tick" x={x(t)} y={H - PAD.b + 15} text-anchor="middle">{t}s</text>
     {/each}
 
-    {#if samples.length > 2}
-      <!-- cumulative average: the calm line that converges -->
-      <path class="avg you" d={path(you.avg)} />
-      {#if hasOpp}
-        <path class="inst them" d={path(them.inst)} />
-      {/if}
-      <!-- trailing-window rate: the lively line -->
-      <path class="inst you" d={path(you.inst)} />
+    {#if samples.length > 1}
+      {#each ordered as p (p.seat.id)}
+        <path d={p.d} style:stroke={p.seat.color} class:mine={p.seat.you} />
+      {/each}
     {/if}
   </svg>
 
   <div class="legend num">
-    <span class="key you">{youName}</span>
-    {#if hasOpp}<span class="key them">{oppName}</span>{/if}
-    <span class="unit">answers / min</span>
+    {#if seats.length > 1}
+      {#each seats as s (s.id)}
+        <span class="key" style:--dot={s.color}>{s.you ? 'you' : s.name}</span>
+      {/each}
+    {/if}
+    <span class="unit">answers</span>
   </div>
 </div>
 
@@ -106,53 +97,65 @@
     width: 100%;
     position: relative;
     transition: opacity 300ms ease;
+
+    /* The chrome tokens are tuned for text and borders sitting on a solid
+       background. A 1px gridline and a 10px tick label on near-white are a
+       harder job, and dimming the whole graph during a live match takes
+       another 30% off, so the graph carries its own darker greys. */
+    --g-grid: #dcdce4;
+    --g-tick: #83848e;
+  }
+  /* Dark mode already has the contrast — hand the tokens back. */
+  @media (prefers-color-scheme: dark) {
+    :global(:root:not([data-theme='light'])) .wrap {
+      --g-grid: var(--grid);
+      --g-tick: var(--faint);
+    }
+  }
+  :global(:root[data-theme='dark']) .wrap {
+    --g-grid: var(--grid);
+    --g-tick: var(--faint);
   }
   /* While a match is live the graph is context, not the thing you look at. */
   .dim {
-    opacity: 0.45;
+    opacity: 0.7;
   }
   svg {
     display: block;
     overflow: visible;
   }
   .grid {
-    stroke: var(--grid);
+    stroke: var(--g-grid);
     stroke-width: 1;
   }
   .vert {
     stroke-dasharray: 2 4;
   }
   .tick {
-    fill: var(--faint);
+    fill: var(--g-tick);
     font-size: 10px;
     font-variant-numeric: tabular-nums;
   }
   path {
     fill: none;
+    stroke-width: 2;
     stroke-linecap: round;
     stroke-linejoin: round;
+    opacity: 0.95;
   }
-  .inst.you {
-    stroke: var(--accent);
+  path.mine {
     stroke-width: 2.25;
-  }
-  .avg.you {
-    stroke: var(--accent-soft);
-    stroke-width: 1.25;
-    stroke-dasharray: 4 4;
-    opacity: 0.75;
-  }
-  .inst.them {
-    stroke: var(--opp);
-    stroke-width: 1.75;
-    opacity: 0.85;
+    opacity: 1;
   }
   .legend {
     position: absolute;
     top: 0;
     right: 0;
     display: flex;
-    gap: 14px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 4px 14px;
+    max-width: 70%;
     font-size: 11px;
     color: var(--muted);
   }
@@ -164,14 +167,9 @@
     border-radius: 50%;
     margin-right: 5px;
     vertical-align: middle;
-  }
-  .key.you::before {
-    background: var(--accent);
-  }
-  .key.them::before {
-    background: var(--opp);
+    background: var(--dot);
   }
   .unit {
-    color: var(--faint);
+    color: var(--g-tick);
   }
 </style>

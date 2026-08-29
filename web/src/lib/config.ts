@@ -2,13 +2,24 @@
 //
 // The server normalizes whatever a client sends and echoes the result back in
 // the match frame, and that echoed copy is the one the generator runs on. The
-// normalize() here is for the settings UI — so the panel shows you the same
+// normalize() here is for the settings UI — so the bar shows you the same
 // numbers the server would have picked — not for gameplay.
 
 export type Op = 'add' | 'sub' | 'mul' | 'div'
 
 /** Canonical order. Part of the wire contract — see quiz.Ops. */
 export const OPS: readonly Op[] = ['add', 'sub', 'mul', 'div']
+
+/**
+ * The two operations that own a range. The other two are these read backwards
+ * — `a + b` shown as `(a+b) − a`, `a × b` shown as `(a×b) ÷ a` — which is what
+ * keeps every answer a clean positive integer, and why the settings panel
+ * offers two ranges rather than four. Mirror of quiz.Forward.
+ */
+export const FORWARD: readonly Op[] = ['add', 'mul']
+
+/** Which forward operation each inverse is derived from. */
+export const INVERSE_OF: Partial<Record<Op, Op>> = { sub: 'add', div: 'mul' }
 
 export const GLYPH: Record<Op, string> = { add: '+', sub: '−', mul: '×', div: '÷' }
 export const OP_NAME: Record<Op, string> = {
@@ -30,7 +41,7 @@ export interface Config {
 export const MAX_TERM = 9999
 export const MIN_DUR = 10
 export const MAX_DUR = 600
-export const TIMES = [30, 60, 120, 300]
+export const TIMES = [15, 30, 60, 120]
 
 export function defaults(): Config {
   return {
@@ -54,17 +65,27 @@ export function normalize(c: Partial<Config> | null | undefined): Config {
   const ops = OPS.filter((op) => want.has(op))
 
   const ranges = {} as Record<Op, Range>
-  for (const op of OPS) {
+  for (const op of FORWARD) {
     const r = c?.ranges?.[op] ?? def.ranges[op]
-    let lo1 = clampTerm(r[0])
+    const lo1 = clampTerm(r[0])
     let hi1 = clampTerm(r[1])
     const lo2 = clampTerm(r[2])
     let hi2 = clampTerm(r[3])
-    if (op === 'div' && lo1 < 1) lo1 = 1 // this operand becomes the divisor
     if (hi1 < lo1) hi1 = lo1
     if (hi2 < lo2) hi2 = lo2
     ranges[op] = [lo1, hi1, lo2, hi2]
   }
+
+  ranges.sub = [...ranges.add] as Range
+
+  // The first multiplication operand becomes the divisor, and the one value it
+  // cannot take is zero.
+  const div = [...ranges.mul] as Range
+  if (div[0] < 1) {
+    div[0] = 1
+    if (div[1] < div[0]) div[1] = div[0]
+  }
+  ranges.div = div
 
   const dur = Math.trunc(c?.durSec ?? def.durSec)
   return {
@@ -95,6 +116,11 @@ export function fmtDur(sec: number): string {
     : sec < 60
       ? `${sec}s`
       : `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`
+}
+
+/** The one-line summary the bar and the lobby both show. */
+export function summary(c: Config): string {
+  return `${OPS.filter((o) => c.ops.includes(o)).map((o) => GLYPH[o]).join(' ')} · ${fmtDur(c.durSec)}`
 }
 
 const KEY = 'zetajam.cfg'
