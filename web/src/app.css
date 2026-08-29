@@ -1,0 +1,107 @@
+/* zetajam — one accent, one grey, a lot of empty space. */
+
+:root {
+  --bg: #fbfbfc;
+  --panel: #ffffff;
+  --line: #e8e8ec;
+  --grid: #f0f0f3;
+  --text: #24252a;
+  --muted: #8b8c95;
+  --faint: #c2c3cb;
+  --accent: #b8860b;
+  --accent-soft: #d8a51f;
+  --opp: #6f7c8d;
+  --danger: #c0483f;
+  --radius: 10px;
+
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg: #0f0f11;
+    --panel: #16161a;
+    --line: #26262c;
+    --grid: #1d1d22;
+    --text: #dcdce2;
+    --muted: #74757f;
+    --faint: #3c3d45;
+    --accent: #e2b338;
+    --accent-soft: #a8842a;
+    --opp: #7f8b9c;
+    --danger: #d4635a;
+  }
+}
+
+:root[data-theme='dark'] {
+  --bg: #0f0f11;
+  --panel: #16161a;
+  --line: #26262c;
+  --grid: #1d1d22;
+  --text: #dcdce2;
+  --muted: #74757f;
+  --faint: #3c3d45;
+  --accent: #e2b338;
+  --accent-soft: #a8842a;
+  --opp: #7f8b9c;
+  --danger: #d4635a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family:
+    'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  transition: background 160ms ease, color 160ms ease;
+}
+
+/* Every number in this app is a number you compare against another number,
+   so they all get fixed-width digits. */
+.num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+input {
+  font: inherit;
+  color: inherit;
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
