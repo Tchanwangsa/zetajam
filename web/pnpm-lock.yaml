@@ -18,6 +18,9 @@ importers:
       '@types/node':
         specifier: ^26.4.0
         version: 26.4.0
+      esbuild:
+        specifier: ^0.25.12
+        version: 0.25.12
       svelte:
         specifier: ^5.19.0
         version: 5.56.10

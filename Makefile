@@ -86,7 +86,13 @@ parity:
 	@go run ./cmd/parity 555000111 500 '$(RUSHC)' > /tmp/zj-go5.txt
 	@diff /tmp/zj-go4.txt /tmp/zj-go5.txt && echo "parity ok — rush is classic's stream"
 
-check: parity
+## check — parity, then vet, then svelte-check. `web` is a prerequisite because
+## server/main.go embeds server/dist: on a clean checkout that directory does
+## not exist, `go vet ./...` cannot build the package, and the whole target
+## fails on a tree that is perfectly fine. Building the frontend first is what
+## makes the embed resolvable. The directory is not kept in git with a
+## placeholder because Vite empties it on every build and would delete it.
+check: parity web
 	go vet ./...
 	cd web && npm run check
 
