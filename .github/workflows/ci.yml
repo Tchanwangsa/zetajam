@@ -1,0 +1,154 @@
+# Checks on every push and pull request; on master they gate a deploy of both
+# halves of the app — the Go hub to Cloud Run, the page to Vercel.
+name: ci
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+# One run per branch. Pull requests cancel their own stale runs; a push does
+# not, because cancelling mid-deploy would leave Cloud Run half-rolled.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  GO_VERSION_FILE: go.mod
+  NODE_VERSION: '22'
+  PNPM_VERSION: '10'
+
+jobs:
+  check:
+    name: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ env.GO_VERSION_FILE }}
+          cache-dependency-path: go.sum
+
+      # pnpm before setup-node, or `cache: pnpm` has no pnpm to find.
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: install web deps
+        working-directory: web
+        run: pnpm install --frozen-lockfile
+
+      # `make check` is parity + go vet + svelte-check. Parity is the one that
+      # matters most here: the Go and TypeScript question generators have to
+      # agree bit for bit, and nothing else in CI would notice if they drifted.
+      - name: check
+        run: make check
+
+      # Compiles the vite bundle and the binary that embeds it. Cheap next to a
+      # Cloud Build round trip, and it fails here instead of three minutes in.
+      - name: build
+        run: make build
+
+  cloud-run:
+    name: deploy server (cloud run)
+    needs: check
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write # workload identity federation mints its token from this
+    steps:
+      - uses: actions/checkout@v4
+
+      # Two ways in, whichever secret you populated. Prefer the first —
+      # federation means no long-lived key sitting in GitHub.
+      #   GCP_WORKLOAD_IDENTITY_PROVIDER + GCP_SERVICE_ACCOUNT
+      #   GCP_SA_KEY  (a service account JSON key)
+      - uses: google-github-actions/auth@v2
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      # `make deploy` owns the flags, not this file — --min-instances 1
+      # --max-instances 1 because matches live in one process's memory, and
+      # --timeout 3600 because the default five minutes cuts a websocket off
+      # mid-match. Duplicating them here is how they'd fall out of sync.
+      - name: deploy
+        env:
+          CLOUDSDK_CORE_PROJECT: ${{ vars.GCP_PROJECT_ID }}
+          # gcloud takes the default answer instead of hanging on the prompt it
+          # raises the first time it has to create an Artifact Registry repo.
+          CLOUDSDK_CORE_DISABLE_PROMPTS: '1'
+        run: |
+          make deploy \
+            SERVICE='${{ vars.GCP_SERVICE || 'zetajam' }}' \
+            REGION='${{ vars.GCP_REGION || 'australia-southeast1' }}' \
+            ORIGINS='${{ vars.ORIGINS }}'
+
+      # /health, not /healthz — Google's edge answers that path itself on
+      # *.run.app and a live service would look dead.
+      - name: smoke test
+        env:
+          CLOUDSDK_CORE_PROJECT: ${{ vars.GCP_PROJECT_ID }}
+        run: |
+          url=$(gcloud run services describe '${{ vars.GCP_SERVICE || 'zetajam' }}' \
+            --region '${{ vars.GCP_REGION || 'australia-southeast1' }}' \
+            --format='value(status.url)')
+          echo "service: $url"
+          curl -fsS --retry 5 --retry-delay 3 --retry-all-errors "$url/health"
+          echo "- server: $url" >> "$GITHUB_STEP_SUMMARY"
+
+  vercel:
+    name: deploy page (vercel)
+    # After the server, not beside it: the page talks a wire protocol the
+    # server defines, so the old page against the new server is survivable and
+    # the new page against the old server is not.
+    needs: [check, cloud-run]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - run: npm install -g vercel@latest
+
+      # Run from web/, which is what `vercel link` was pointed at — the .vercel
+      # directory lives there and the project's root is that directory, not the
+      # repo root. If you ever set a Root Directory of "web" in the project
+      # settings, this has to move up a level to match.
+      - name: deploy
+        working-directory: web
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          # Optional. Only exported when set, because an empty VITE_WS_URL is
+          # worse than an absent one: the page would fall back to its own
+          # origin and try to open a socket against Vercel.
+          WS_URL: ${{ vars.VITE_WS_URL }}
+          NEXT_TELEMETRY_DISABLED: '1'
+        run: |
+          set -euo pipefail
+          if [ -n "${WS_URL:-}" ]; then export VITE_WS_URL="${WS_URL}"; fi
+          vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+          vercel build --prod --token="$VERCEL_TOKEN"
+          url=$(vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN")
+          echo "page: $url"
+          echo "- page: $url" >> "$GITHUB_STEP_SUMMARY"

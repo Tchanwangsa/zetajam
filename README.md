@@ -203,6 +203,44 @@ server checks `Origin` itself; same-origin and localhost are always allowed.
 `web/vercel.json` and `web/public/_redirects` carry the rewrite that keeps
 `/r/QK4M` from 404ing.
 
+## Deploys on push
+
+`.github/workflows/ci.yml` runs `make check` and `make build` on every push and
+pull request. On `main`/`master` a green run then deploys the server, waits for
+`/health` to answer, and only then deploys the page — the page speaks a protocol
+the server defines, so an old page against a new server is survivable and the
+reverse is not. The deploy steps call `make deploy`, so the flags that matter
+stay written down in one place rather than drifting between the Makefile and a
+YAML file.
+
+The server job authenticates whichever way you configure. Workload identity
+federation is the one to prefer — nothing long-lived sits in GitHub:
+
+- `GCP_WORKLOAD_IDENTITY_PROVIDER` + `GCP_SERVICE_ACCOUNT` (secrets), or
+- `GCP_SA_KEY` (secret) — a service account JSON key, if federation is more
+  setup than you want. Populate one pair or the other, not both.
+
+The service account needs `roles/run.admin`, `roles/cloudbuild.builds.editor`,
+`roles/artifactregistry.writer`, `roles/storage.admin` and
+`roles/iam.serviceAccountUser`, because `--source .` builds the image on Cloud
+Build rather than pushing one from the runner.
+
+The page job needs `VERCEL_TOKEN`, `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID` as
+secrets — the last two are the `projectId` and `orgId` in `web/.vercel/project.json`,
+which is gitignored and so has to be copied across by hand.
+
+Repository *variables*, not secrets, for the rest: `GCP_PROJECT_ID`, and
+optionally `GCP_SERVICE` and `GCP_REGION` (defaulting to `zetajam` and
+`australia-southeast1`, as in the Makefile), `ORIGINS` for the page's origin,
+and `VITE_WS_URL` if the Cloud Run URL is not already set in the Vercel
+project's own environment. `VITE_WS_URL` is only exported when non-empty: an
+empty one is worse than an absent one, because the page would fall back to its
+own origin and open a socket against Vercel, which has no hub behind it.
+
+One thing to check once: if the Vercel project still has its GitHub integration
+connected, every push deploys twice — once from Vercel, once from here, racing
+each other for the production alias. Disconnect it, or drop the `vercel` job.
+
 ## Known edges
 
 - **No database.** The hub, the rooms and the day's best are all in memory and
