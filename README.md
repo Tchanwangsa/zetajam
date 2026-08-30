@@ -16,6 +16,12 @@ make server                # Go on :8080
 cd web && pnpm dev         # Vite on :5173, proxies /ws to :8080
 ```
 
+`make watch` runs the server under [air](https://github.com/air-verse/air)
+instead, rebuilding whenever a `.go` file changes. Worth knowing what that
+costs: matches and rooms live in the process's memory, so every rebuild takes
+the open ones with it — the page reconnects on its own but does not re-join,
+so testing a server change mid-match means reloading and joining again.
+
 `make build` produces `bin/zetajam` — the frontend embedded in the binary, no
 runtime dependencies. `make check` runs the parity diff, `go vet` and
 `svelte-check`.

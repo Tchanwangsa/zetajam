@@ -4,3 +4,4 @@ web/dist/
 server/dist/*
 !server/dist/.gitkeep
 .DS_Store
+tmp/

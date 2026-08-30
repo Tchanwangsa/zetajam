@@ -1,15 +1,38 @@
 BIN := bin/zetajam
 
-.PHONY: dev web web-static server run build parity check clean deploy
+.PHONY: dev watch web web-static server run build parity check clean deploy
 
 ## dev — two processes: Go on :8080, Vite on :5173 with a /ws proxy.
 dev:
 	@echo "run these in two terminals:"
-	@echo "  make server"
+	@echo "  make server               # or make watch, to rebuild on save"
 	@echo "  cd web && npm run dev     # open http://localhost:5173"
 
 server:
 	go run ./server
+
+## watch — make server, but rebuilding whenever a .go file changes. See
+## .air.toml for what it watches and why. A rebuild restarts the process, and
+## matches and rooms live in that process's memory, so anything in flight is
+## gone — reload the page and join again.
+##
+## air is resolved rather than just invoked: `go install` drops it in
+## $(go env GOPATH)/bin, which is not on PATH on a stock macOS shell, so
+## assuming the shell can find it fails on the machine that just installed it.
+watch:
+	@air=$$(command -v air 2>/dev/null); \
+	if [ -z "$$air" ]; then \
+		dir=$$(go env GOBIN 2>/dev/null); \
+		[ -n "$$dir" ] || dir=$$(go env GOPATH 2>/dev/null)/bin; \
+		air=$$dir/air; \
+	fi; \
+	if [ ! -x "$$air" ]; then \
+		echo "air not found. install it with:"; \
+		echo "    go install github.com/air-verse/air@latest"; \
+		echo "(or use 'make server' — same server, no rebuild on save)"; \
+		exit 1; \
+	fi; \
+	exec "$$air"
 
 web:
 	cd web && npm run build

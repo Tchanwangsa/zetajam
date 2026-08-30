@@ -1,0 +1,44 @@
+# Live rebuild for the Go server: `make watch`.
+#
+# `make server` stays the target that needs nothing installed — this one is the
+# convenience, and it is deliberately narrow about what it reacts to.
+#
+# Worth knowing before you use it: matches and rooms live in this process's
+# memory, so every restart drops them. The client reconnects on its own
+# (lib/net.ts) but does not re-send its join, so a rebuild mid-match means
+# reloading the page and joining again. That is the cost of the loop, not a bug
+# in it.
+
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  cmd = "go build -o ./tmp/zetajam ./server"
+  # entrypoint, not bin: air deprecated `bin` in favour of this and warns on
+  # every start otherwise. Needs air >= 1.62; the install line in `make watch`
+  # points at @latest, so a fresh install is fine.
+  entrypoint = "./tmp/zetajam"
+
+  # Only the three trees that compile into the binary. Everything else in here
+  # — web/, and server/dist which Vite writes into — would restart the server
+  # for a change that cannot affect it, and take the open rooms with it.
+  include_dir = ["server", "internal", "cmd"]
+  exclude_dir = ["server/dist", "web", "bin", "tmp"]
+
+  # The real guard on the above: Air's default extension list includes html,
+  # and a frontend build writes server/dist/index.html. Go files only.
+  include_ext = ["go"]
+  exclude_regex = ["_test\\.go"]
+
+  # false means "do not stop the old binary when the build errors" — so a typo
+  # leaves the last good server running rather than dropping every socket in
+  # the room while you fix it. The error still prints. Reads backwards; it is
+  # named for the thing it does when true.
+  stop_on_error = false
+
+  delay = 200
+  kill_delay = "500ms"
+
+[misc]
+  # tmp/ is a build artifact; there is no reason for it to outlive the session.
+  clean_on_exit = true
