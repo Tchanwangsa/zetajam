@@ -70,7 +70,13 @@
   // The question you were still on when the clock stopped — index `steps.length`
   // in the stream, because every question before it is an answer in the log.
   // Only ever computed here: mid-run it is the one on your screen.
-  const pending = $derived(steps.length ? question(seed, steps.length, cfg) : null)
+  //
+  // Rush has no such question. Its stream is indexed by slot rather than walked
+  // one answer at a time, so the count of what you won says nothing about where
+  // the run got to, and the last question was everybody's anyway.
+  const pending = $derived(
+    cfg.mode !== 'rush' && steps.length ? question(seed, steps.length, cfg) : null,
+  )
 </script>
 
 <section class="results">

@@ -1,6 +1,7 @@
 <script lang="ts">
   import {
     Net,
+    type Claim,
     type GameInfo,
     type MatchResult,
     type Msg,
@@ -10,6 +11,7 @@
   } from './lib/net'
   import type { Sample } from './lib/series'
   import type { Step } from './lib/steps'
+  import { question } from './lib/questions'
   import { load, save, sig, type Config } from './lib/config'
   import { codeFromURL, setURL, validCode } from './lib/room'
   import Hints from './components/Hints.svelte'
@@ -51,6 +53,10 @@
   // Game has been torn down. See lib/steps.ts.
   let steps = $state<Step[]>([])
   let results = $state<MatchResult[]>([])
+  // Rush only: who took each slot, by slot number. The server is the only one
+  // who knows — it settles the race by arrival — so this is entirely its word,
+  // including for your own buzzes.
+  let claims = $state<Record<number, Claim>>({})
 
   let room = $state<RoomInfo | null>(null)
   let joinCode = $state(deepLink)
@@ -136,11 +142,26 @@
         scores = Object.fromEntries(match.players.map((p) => [p.id, 0]))
         samples = []
         steps = []
+        claims = {}
         runKey++
         phase = 'match'
         break
       case 'score':
         scores = { ...scores, [m.id]: m.score ?? 0 }
+        break
+      case 'claim':
+        claims = { ...claims, [m.i]: { id: m.id, ms: m.ms ?? 0 } }
+        scores = { ...scores, [m.id]: m.score ?? 0 }
+        // A rush step is recorded here rather than in Game, because here is
+        // where you find out you won it. `i` is the slot, which is also the
+        // index in the question stream, so the question can be named from the
+        // seed without Game having to hand anything over.
+        if (m.id === selfId && match) {
+          const at = m.ms ?? 0
+          const q = question(match.seed, m.i, match.cfg)
+          const prev = steps.length ? steps[steps.length - 1].t * 1000 : 0
+          steps = [...steps, { i: m.i, t: at / 1000, ms: at - prev, text: q.text, answer: q.answer, tier: -1 }]
+        }
         break
       case 'end':
         results = m.results
@@ -301,6 +322,11 @@
 
   function answer(i: number, v: number, ms: number) {
     net.send({ t: 'answer', i, v, ms })
+    // Everywhere but rush your own score is yours the moment you type it — the
+    // round trip only tells the others. In rush the point belongs to whoever
+    // got there first, which is not a thing this browser can know, so the
+    // number waits for the `claim` frame.
+    if (match?.cfg.mode === 'rush') return
     scores = { ...scores, [selfId]: (scores[selfId] ?? 0) + 1 }
   }
 
@@ -427,6 +453,7 @@
           {selfId}
           {scores}
           spectating={match.spectating}
+          {claims}
           bind:samples
           bind:steps
           onAnswer={answer}

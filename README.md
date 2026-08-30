@@ -5,7 +5,9 @@ that build into one static binary.
 
 - **Solo runs** against the clock, or **rooms** of up to eight — public and
   listed, or private behind a four-character code.
-- **Classic or ramp** — fixed difficulty, or a run that opens easy and climbs.
+- **Classic, ramp or rush** — fixed difficulty; a run that opens easy and
+  climbs; or one question in front of everybody at once, five seconds each,
+  first correct answer taking the point.
 - Configurable operations, term ranges and length; a live graph of everybody's
   pace, with a per-question breakdown of your own.
 
@@ -48,10 +50,28 @@ typing feels instant, but it does not report its own score — the server
 re-derives the expected answer for every frame and counts only the ones that
 match, in order. Answers arriving closer than 120ms apart are flagged.
 
+**Rush is the same machinery with one rule added.** A slot is a question index
+laid on the match clock. What the server adds is a ledger: the first valid buzz
+for a slot takes it and every later one is refused, so a question is worth
+exactly one point, to one player, or to nobody. "First" means first to arrive —
+the timestamp on the frame is the client's own, and a race decided on it would
+be a race to lie about it. Which is why rush is the one mode where a client
+cannot score itself: it answers and waits for the `claim` frame to say who won.
+
+**A taken question ends there.** Five seconds is what a slot gets if nobody
+gets it; a claim closes it half a second later and the next one opens, so the
+room never sits watching a question somebody has already won. That makes the
+schedule a fold over the run rather than a division of the clock — but still
+one nobody has to be told: the `claim` frame already carries the slot and the
+millisecond it landed on, so every screen folds the same history into the same
+boundaries and turns over together, and the server folds it too so a buzz is
+judged against the window the player was looking at.
+
 **The generator exists twice** — `internal/quiz/` in Go, `web/src/lib/` in
 TypeScript — and the two must agree bit for bit. `make parity` diffs 500
-questions across both under three configs and fails if they diverge. Change
-one, change the other.
+questions across both under four configs and fails if they diverge — and pins
+rush to the same stream classic draws under the same ranges, because rush
+changes the rules and not the numbers. Change one, change the other.
 
 **Settings travel with the join.** The server normalizes the config once
 (canonical operation order, no inverted range, 10s–600s) and echoes the

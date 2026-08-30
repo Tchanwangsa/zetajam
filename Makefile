@@ -61,6 +61,12 @@ CFG := {"ops":["sub","div"],"ranges":{"add":[5,900,1,60],"mul":[3,17,7,250]}}
 ## The ramp case runs at a length the tier thresholds do not divide evenly, so
 ## the per-minute scaling has to round identically on both sides or it diverges.
 RAMP := {"mode":"ramp","durSec":45,"ranges":{"add":[5,900,1,60],"mul":[3,17,7,250]}}
+## Rush changes the rules, not the numbers: it draws from the config's own
+## ranges exactly as classic does, so its stream has to come out identical to a
+## classic one under the same settings. That is what this case pins down — a
+## mode that quietly forked the generator would break every rush room.
+RUSH  := {"mode":"rush","durSec":45,"ranges":{"add":[5,900,1,60],"mul":[3,17,7,250]}}
+RUSHC := {"durSec":45,"ranges":{"add":[5,900,1,60],"mul":[3,17,7,250]}}
 
 parity:
 	@cd web && npx esbuild scripts/parity.ts --bundle --platform=node \
@@ -74,6 +80,11 @@ parity:
 	@go run ./cmd/parity 555000111 500 '$(RAMP)' > /tmp/zj-go3.txt
 	@node /tmp/zj-parity.mjs 555000111 500 '$(RAMP)' > /tmp/zj-ts3.txt
 	@diff /tmp/zj-go3.txt /tmp/zj-ts3.txt && echo "parity ok — ramp"
+	@go run ./cmd/parity 555000111 500 '$(RUSH)' > /tmp/zj-go4.txt
+	@node /tmp/zj-parity.mjs 555000111 500 '$(RUSH)' > /tmp/zj-ts4.txt
+	@diff /tmp/zj-go4.txt /tmp/zj-ts4.txt && echo "parity ok — rush"
+	@go run ./cmd/parity 555000111 500 '$(RUSHC)' > /tmp/zj-go5.txt
+	@diff /tmp/zj-go4.txt /tmp/zj-go5.txt && echo "parity ok — rush is classic's stream"
 
 check: parity
 	go vet ./...

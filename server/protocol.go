@@ -8,6 +8,12 @@ import "zetajam/internal/quiz"
 // small frame per *correct answer* and nothing else, and the server sends one
 // frame back per answer somebody else got right. A 120s match is a few dozen
 // frames each way, whether it is two players or eight.
+//
+// Rush is the one mode where a client cannot score itself, because the point
+// belongs to whoever's frame lands first and only the server knows that. So it
+// answers as usual and waits for a `claim` frame to say who took the slot —
+// still one frame in and one out per question, and there are only DurSec/5 of
+// those in a whole run.
 
 type inbound struct {
 	T      string `json:"t"`
@@ -21,7 +27,7 @@ type inbound struct {
 	Cfg *quiz.Config `json:"cfg,omitempty"`
 
 	// answer
-	I  int   `json:"i"`  // question index
+	I  int   `json:"i"`  // question index; the slot number in a rush run
 	V  int   `json:"v"`  // the value the player typed
 	Ms int64 `json:"ms"` // ms since the match went live
 }
@@ -105,10 +111,16 @@ type outbound struct {
 	Players    []playerInfo `json:"players,omitempty"`
 	Spectating bool         `json:"spectating,omitempty"`
 
-	// score
+	// score / claim
 	ID    string `json:"id,omitempty"`
 	Score int    `json:"score,omitempty"`
 	Ms    int64  `json:"ms,omitempty"`
+
+	// claim — the rush slot this frame settles. A pointer, not a plain int:
+	// slot 0 is a real slot and `omitempty` would drop it on the floor, and a
+	// plain field with no omitempty would ride along on every other frame
+	// type, all of which share this struct.
+	Slot *int `json:"i,omitempty"`
 
 	// end
 	Results []result `json:"results,omitempty"`

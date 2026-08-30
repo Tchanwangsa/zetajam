@@ -6,8 +6,10 @@
     GLYPH,
     OP_NAME,
     MODES,
+    RUSH_SEC,
     TIERS,
     TIMES,
+    rushSlots,
     MAX_TERM,
     MIN_DUR,
     MAX_DUR,
@@ -22,7 +24,7 @@
   } from '../lib/config'
   import NumField from './ui/NumField.svelte'
   import Popover from './ui/Popover.svelte'
-  import { Brain, Settings2, TrendingUp, Wrench } from '@lucide/svelte';
+  import { Brain, Settings2, TrendingUp, Wrench, Zap } from '@lucide/svelte';
 
   /**
    * The settings, as a toolbar rather than a modal you have to finish with.
@@ -51,10 +53,11 @@
     note?: string
   } = $props()
 
-  const MODE_ICON = { classic: Brain, ramp: TrendingUp }
+  const MODE_ICON = { classic: Brain, ramp: TrendingUp, rush: Zap }
   const MODE_HINT: Record<Mode, string> = {
     classic: 'one difficulty the whole way',
     ramp: 'starts easy, steps up as the run goes on',
+    rush: `one question for everybody — first correct answer takes the point and moves the room on`,
   }
 
   let showRanges = $state(false)
@@ -101,6 +104,7 @@
 
   const std = $derived(isDefault(cfg))
   const ramp = $derived(cfg.mode === 'ramp')
+  const rush = $derived(cfg.mode === 'rush')
 
   // The panel lists the rungs alongside the question each one starts at, which
   // is the only place the per-minute scaling is visible: at 15s the ramp is
@@ -283,6 +287,25 @@
           </div>
         {/each}
       </div>
+
+      {#if rush}
+        <!-- The ranges above are still the ones rush draws from; what changes
+             is who the question belongs to. The one number worth spelling out
+             is how many of them a run of this length holds — and it is a floor
+             rather than a count, because a question ends the moment somebody
+             takes it and the run just fits more of them in. -->
+        <div class="tiers num">
+          <div class="micro head">rush — at {cfg.durSec}s</div>
+          <div class="tier">
+            <span class="at">{RUSH_SEC}s each</span>
+            <span class="spec">
+              {rushSlots(cfg.durSec)} questions at least
+              <span class="dot">·</span>
+              first correct answer takes the point and the room moves straight on
+            </span>
+          </div>
+        </div>
+      {/if}
 
       {#if ramp}
         <div class="tiers num">

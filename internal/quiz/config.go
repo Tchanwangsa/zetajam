@@ -20,15 +20,85 @@ var Forward = [2]string{"add", "mul"}
 // generator draws for one operation.
 type Range [4]int
 
-// The two shapes a run can take.
+// The three shapes a run can take.
 //
 // Classic draws every question from one fixed pair of ranges — the ranges in
 // the config. Ramp ignores them and walks Tiers instead, so the run opens easy
-// and ends on the classic defaults.
+// and ends on the classic defaults. Rush draws from the config's ranges exactly
+// as classic does and changes the *rules* rather than the numbers: one question
+// stands in front of everybody at once, for up to RushSec, and the first
+// correct answer to reach the server takes the only point it is worth — and
+// ends the question there and then, for everybody.
 const (
 	ModeClassic = "classic"
 	ModeRamp    = "ramp"
+	ModeRush    = "rush"
 )
+
+// RushSec is how long one question stands in a rush run when nobody gets it.
+// Everything about the mode falls out of it: a slot is a question, its index in
+// the stream is the slot number, and an untouched run is DurSec/RushSec of them.
+const RushSec = 5
+
+// RushMs is RushSec on the match clock, which is where every comparison here
+// actually happens.
+const RushMs = RushSec * 1000
+
+// RushGapMs is the beat between a slot being taken and the next one opening.
+// A slot no longer runs its five seconds out once somebody has it — the point
+// is gone, so the wait is dead time — but the turnover is not instant either:
+// the winner's own screen would swap the equation out from under their fingers
+// mid-keystroke, and nobody would ever see who took it. This is the whole of
+// the pause. Shorten it to zero if you want the question to change on the
+// claim itself; the verdict line under the bar survives into the next slot
+// either way.
+const RushGapMs = 500
+
+// RushNext is the millisecond at which the slot after the one that opened at
+// `open` begins.
+//
+// A rush schedule is no longer a pure function of the clock — it is this fold
+// over the run so far: slot 0 opens at 0, and each slot after it opens either
+// RushGapMs after the claim that settled its predecessor or RushMs after that
+// predecessor opened, whichever comes first. `claimed` is false for a slot
+// nobody took, and then only the second term applies.
+//
+// Every screen in the room can run the same fold, because a claim frame
+// carries both the slot and the millisecond it landed on. The server runs it
+// too — see Match.rushOpen — so a buzz is judged against the same window the
+// player was looking at.
+//
+// `ms` is the claiming client's own timestamp and so is clamped into the slot
+// it settles: the wire tolerates a little clock skew either side of a
+// boundary, but the schedule everyone else inherits must not.
+//
+// Mirrored in web/src/lib/config.ts.
+func RushNext(open, ms int64, claimed bool) int64 {
+	end := open + RushMs
+	if !claimed {
+		return end
+	}
+	if ms < open {
+		ms = open
+	}
+	if n := ms + RushGapMs; n < end {
+		return n
+	}
+	return end
+}
+
+// RushSlots is the fewest questions a rush run of this length gets through —
+// what it holds if every one of them runs its full RushSec out. Any slot
+// somebody takes early buys the run another one, so this is a floor and not a
+// count. The last one is short when RushSec does not divide the run; the clock
+// ends it early rather than the schedule stretching to fit.
+func RushSlots(durSec int) int {
+	n := (durSec*1000 + RushMs - 1) / RushMs
+	if n < 1 {
+		n = 1
+	}
+	return n
+}
 
 // A Tier is one rung of the ramp: the ranges addition and multiplication draw
 // from while the run is on that rung. Subtraction and division read them
@@ -83,7 +153,7 @@ func TierOf(i, durSec int) int {
 }
 
 // RangeFor is the range operation op draws from for question i — the config's
-// own in classic, the rung's in ramp.
+// own in classic and in rush, the rung's in ramp.
 func (c Config) RangeFor(op string, i int) Range {
 	if c.Mode != ModeRamp {
 		return c.Ranges[op]
@@ -103,8 +173,8 @@ func (c Config) RangeFor(op string, i int) Range {
 // than their own, so both sides of a match are provably generating the same
 // questions from the same seed.
 type Config struct {
-	// Classic or ramp. Empty means classic — an older client that has never
-	// heard of the field still gets the run it expects.
+	// Classic, ramp or rush. Empty means classic — an older client that has
+	// never heard of the field still gets the run it expects.
 	Mode   string           `json:"mode,omitempty"`
 	Ops    []string         `json:"ops"`
 	Ranges map[string]Range `json:"ranges"`
@@ -145,8 +215,9 @@ func Default() Config {
 func (c Config) Normalize() Config {
 	def := Default()
 	out := Config{Mode: ModeClassic, Ranges: map[string]Range{}, DurSec: c.DurSec}
-	if c.Mode == ModeRamp {
-		out.Mode = ModeRamp
+	switch c.Mode {
+	case ModeRamp, ModeRush:
+		out.Mode = c.Mode
 	}
 
 	on := map[string]bool{}

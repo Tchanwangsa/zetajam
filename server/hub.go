@@ -16,7 +16,12 @@ const (
 	countdown = 3 * time.Second
 	// Two correct answers closer together than this is not a human hand.
 	minAnswerGap = 120 * time.Millisecond
-	maxRoomSize  = 8
+	// How far past the end of a rush slot a buzz for it is still taken. The
+	// slot boundary is on the match clock, which every client keeps for itself,
+	// so a frame typed at 4.98s only reaches here after a trip up the wire —
+	// judging it by arrival alone would rob whoever answered latest and fastest.
+	rushGrace   = 750 * time.Millisecond
+	maxRoomSize = 8
 	// How many finished runs a room remembers. Long enough that an evening
 	// reads back whole, short enough that the room frame — which goes out in
 	// full every time anyone joins, leaves or changes a setting — stays a
@@ -62,6 +67,31 @@ type Match struct {
 	startAt time.Time
 	dur     time.Duration
 	done    bool
+
+	// Rush only: who took each slot. A slot appears here the moment the first
+	// valid buzz for it arrives and is never overwritten, which is the whole of
+	// the rule — one point per question, to whoever got here first, or to
+	// nobody at all. Nil in every other mode. Guarded by hub.mu, like
+	// everything else on a Match.
+	claims map[int]*Client
+
+	// Rush only: the schedule, pinned at the last slot a claim moved. Slots no
+	// longer sit on fixed five-second boundaries — a slot ends when somebody
+	// takes it — so the server cannot derive a slot's window from its index
+	// alone. It carries the fold instead: rushSlot opened at rushAt, and every
+	// slot after it opens a full RushMs later until a claim pulls the schedule
+	// forward again. See quiz.RushNext, which every client runs too.
+	rushSlot int
+	rushAt   int64
+}
+
+// rushStart is the millisecond into the run at which slot `i` opens, as far as
+// this match knows. Exact for the live slot and every slot after it, which is
+// the only range a buzz is ever judged against: a slot behind the pin is
+// either already claimed — and refused before this is reached — or long gone,
+// and reads early here, which refuses it too.
+func (m *Match) rushStart(i int) int64 {
+	return m.rushAt + int64(i-m.rushSlot)*quiz.RushMs
 }
 
 // Room is a lobby. It outlives the matches played in it, so a group can run
@@ -246,6 +276,9 @@ func (h *Hub) startMatchLocked(players []*Client, cfg quiz.Config, room *Room) *
 		specs:   map[*Client]bool{},
 		startAt: time.Now().Add(countdown),
 		dur:     time.Duration(cfg.DurSec) * time.Second,
+	}
+	if cfg.Mode == quiz.ModeRush {
+		m.claims = map[int]*Client{}
 	}
 	for _, c := range players {
 		c.match, c.score, c.flagged, c.answers = m, 0, false, nil
@@ -592,9 +625,29 @@ func (h *Hub) onAnswer(c *Client, in inbound) {
 		h.mu.Unlock()
 		return
 	}
-	// Answers must arrive in order, starting at 0. Anything else is a
-	// desynced or hand-rolled client.
-	if in.I != len(c.answers) {
+	rush := m.claims != nil
+	if rush {
+		// A rush run is a race for one point per slot, so the ordering rule
+		// below does not apply: you are allowed to miss slots, and everyone is
+		// buzzing on the same index at the same time. What replaces it is that
+		// a slot is settled exactly once — the first valid buzz to reach this
+		// line takes it, and every later one falls out here.
+		//
+		// Arrival order, not the client's own timestamp, is what "first" means.
+		// The timestamp is checked below and recorded for the graph, but it is
+		// a number the client chose, and a race decided on it would be a race
+		// to lie about it.
+		if in.I < 0 {
+			h.mu.Unlock()
+			return
+		}
+		if _, taken := m.claims[in.I]; taken {
+			h.mu.Unlock()
+			return
+		}
+	} else if in.I != len(c.answers) {
+		// Answers must arrive in order, starting at 0. Anything else is a
+		// desynced or hand-rolled client.
 		h.mu.Unlock()
 		return
 	}
@@ -609,16 +662,46 @@ func (h *Hub) onAnswer(c *Client, in inbound) {
 		h.mu.Unlock()
 		return
 	}
+	if rush {
+		// The slot has to be the one that is actually open — by the client's
+		// clock and by this one. Without the second test a client could sit
+		// through the whole run and then buzz every slot of it at the whistle,
+		// with a plausible timestamp on each.
+		lo := m.rushStart(in.I)
+		hi := lo + quiz.RushMs
+		if in.Ms < lo-250 || in.Ms >= hi+250 {
+			h.mu.Unlock()
+			return
+		}
+		if elapsed < lo-250 || elapsed >= hi+rushGrace.Milliseconds() {
+			h.mu.Unlock()
+			return
+		}
+		m.claims[in.I] = c
+		// Taking a slot ends it, so the rest of the run moves up. Everyone
+		// else works this out for themselves from the claim frame below — it
+		// carries the same slot and the same timestamp this line folds in —
+		// and lands on the same instant without another frame being sent.
+		if in.I >= m.rushSlot {
+			m.rushSlot, m.rushAt = in.I+1, quiz.RushNext(lo, in.Ms, true)
+		}
+	}
 	if n := len(c.answers); n > 0 && in.Ms-c.answers[n-1].ms < minAnswerGap.Milliseconds() {
 		c.flagged = true
 	}
 	c.answers = append(c.answers, answer{i: in.I, ms: in.Ms})
 	c.score = len(c.answers)
 
+	// In rush the buzzer is told too: it does not know it won until this says
+	// so, because somebody else's frame may already have been here.
 	msg := outbound{T: "score", ID: c.id, Score: c.score, Ms: in.Ms}
+	if rush {
+		slot := in.I
+		msg = outbound{T: "claim", Slot: &slot, ID: c.id, Score: c.score, Ms: in.Ms}
+	}
 	targets := make([]*Client, 0, len(m.players)+len(m.specs))
 	for _, o := range m.players {
-		if o != c {
+		if o != c || rush {
 			targets = append(targets, o)
 		}
 	}

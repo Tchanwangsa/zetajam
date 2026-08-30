@@ -5,6 +5,12 @@ export interface PlayerInfo {
   name: string
 }
 
+/** Who took a rush slot, and at what point on the match clock. */
+export interface Claim {
+  id: string
+  ms: number
+}
+
 export interface MatchResult {
   id: string
   name: string
@@ -74,6 +80,12 @@ export type Msg =
   // Numbers here are optional because the server drops a zero-valued field
   // rather than sending it — see the `omitempty` note in App.svelte.
   | { t: 'score'; id: string; score?: number; ms?: number }
+  /** Rush: slot `i` has been taken by `id`, and nobody else can have it.
+      Sent to the buzzer too — in rush you do not know you won until this
+      arrives, because the point goes to whichever frame reached the server
+      first. `i` is a real 0 on the first slot, so the server sends it as a
+      pointer rather than letting `omitempty` swallow it. */
+  | { t: 'claim'; i: number; id: string; score?: number; ms?: number }
   | { t: 'end'; results: MatchResult[]; best?: MatchResult }
   | { t: 'online'; online?: number; playing?: number }
   // Both lists are dropped from the frame entirely when they are empty — see

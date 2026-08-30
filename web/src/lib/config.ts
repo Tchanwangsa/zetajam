@@ -33,17 +33,65 @@ export const OP_NAME: Record<Op, string> = {
 export type Range = [number, number, number, number]
 
 /**
- * The two shapes a run can take. Mirror of quiz.ModeClassic / quiz.ModeRamp.
+ * The three shapes a run can take. Mirror of quiz.ModeClassic / ModeRamp /
+ * ModeRush.
  *
  * Classic draws every question from one fixed pair of ranges — the ones in the
  * config. Ramp ignores them and walks TIERS instead, so the run opens easy and
- * ends on the classic defaults.
+ * ends on the classic defaults. Rush draws from the config's ranges exactly as
+ * classic does and changes the rules rather than the numbers: one question
+ * stands in front of everybody at once for up to RUSH_SEC, and the first
+ * correct answer to reach the server takes the only point it is worth — and
+ * ends the question there and then, for everybody.
  */
-export type Mode = 'classic' | 'ramp'
+export type Mode = 'classic' | 'ramp' | 'rush'
 
-export const MODES: readonly Mode[] = ['classic', 'ramp']
+export const MODES: readonly Mode[] = ['classic', 'ramp', 'rush']
 
-export const MODE_NAME: Record<Mode, string> = { classic: 'classic', ramp: 'ramp' }
+export const MODE_NAME: Record<Mode, string> = {
+  classic: 'classic',
+  ramp: 'ramp',
+  rush: 'rush',
+}
+
+/** Mirror of quiz.RushSec. One slot, one question, one point — and RUSH_SEC is
+    how long it stands only if nobody takes it. */
+export const RUSH_SEC = 5
+export const RUSH_MS = RUSH_SEC * 1000
+
+/** Mirror of quiz.RushGapMs. The beat between a slot being taken and the next
+    one opening — long enough that the winner's own screen does not swap the
+    equation out mid-keystroke, and short enough to still read as "next". */
+export const RUSH_GAP_MS = 500
+
+/**
+ * The millisecond at which the slot after the one that opened at `open`
+ * begins. Mirror of quiz.RushNext.
+ *
+ * A rush schedule is not a function of the clock; it is this fold over the run
+ * so far. Slot 0 opens at 0, and each slot after it opens either RUSH_GAP_MS
+ * after the claim that settled its predecessor or RUSH_MS after that
+ * predecessor opened, whichever comes first — `claimed` is false for a slot
+ * nobody took, and then only the second term applies.
+ *
+ * Nothing is sent to drive the turnover. A claim frame already carries the
+ * slot and the millisecond it landed on, so every screen in the room folds the
+ * same history into the same boundaries, and the question stream stays what it
+ * has always been: a pure function of (seed, index, cfg).
+ */
+export function rushNext(open: number, ms: number, claimed: boolean): number {
+  const end = open + RUSH_MS
+  if (!claimed) return end
+  return Math.min(end, Math.max(open, ms) + RUSH_GAP_MS)
+}
+
+/**
+ * The fewest questions a rush run of this length gets through — what it holds
+ * if every slot runs its full RUSH_SEC out. Every slot somebody takes early
+ * buys the run another one, so this is a floor, not a count. Mirror of
+ * quiz.RushSlots.
+ */
+export const rushSlots = (durSec: number) => Math.max(1, Math.ceil((durSec * 1000) / RUSH_MS))
 
 /** One rung of the ramp. Subtraction and division inherit as they always do. */
 export interface Tier {
@@ -104,7 +152,8 @@ export interface Config {
   durSec: number
 }
 
-/** The range `op` draws from for question `i`. Mirror of quiz.Config.RangeFor. */
+/** The range `op` draws from for question `i` — the config's own in classic and
+    in rush, the rung's in ramp. Mirror of quiz.Config.RangeFor. */
 export function rangeFor(c: Config, op: Op, i: number): Range {
   if (c.mode !== 'ramp') return c.ranges[op]
   const t = TIERS[tierOf(i, c.durSec)]
@@ -162,8 +211,9 @@ export function normalize(c: Partial<Config> | null | undefined): Config {
   ranges.div = div
 
   const dur = Math.trunc(c?.durSec ?? def.durSec)
+  const mode: Mode = c?.mode === 'ramp' || c?.mode === 'rush' ? c.mode : 'classic'
   return {
-    mode: c?.mode === 'ramp' ? 'ramp' : 'classic',
+    mode,
     ops: ops.length ? ops : def.ops,
     ranges,
     durSec: Math.min(MAX_DUR, Math.max(MIN_DUR, Number.isFinite(dur) ? dur : def.durSec)),
@@ -203,7 +253,7 @@ export function fmtDur(sec: number): string {
 /** The one-line summary the bar and the lobby both show. */
 export function summary(c: Config): string {
   const ops = OPS.filter((o) => c.ops.includes(o)).map((o) => GLYPH[o]).join(' ')
-  return `${ops} · ${fmtDur(c.durSec)}${c.mode === 'ramp' ? ' · ramp' : ''}`
+  return `${ops} · ${fmtDur(c.durSec)}${c.mode === 'classic' ? '' : ` · ${MODE_NAME[c.mode]}`}`
 }
 
 const KEY = 'zetajam.cfg'
