@@ -1,11 +1,12 @@
 <script lang="ts">
-  import type { MatchResult, PlayerInfo } from '../lib/net'
+  import type { MatchResult, PlayerInfo, RoomGame } from '../lib/net'
   import type { Sample } from '../lib/series'
   import type { Step } from '../lib/steps'
   import { TIERS, type Config } from '../lib/config'
   import { question } from '../lib/questions'
   import { seats as buildSeats } from '../lib/players'
   import Graph from './Graph.svelte'
+  import Session from './Session.svelte'
 
   let {
     results = [],
@@ -17,6 +18,7 @@
     cfg,
     durMs,
     inRoom = false,
+    log = [],
     onAgain,
     onRoom,
     onLobby,
@@ -33,6 +35,9 @@
     cfg: Config
     durMs: number
     inRoom?: boolean
+    /** Everything this room has played, this run included. Empty for a solo
+        run, which is nobody's session but your own. */
+    log?: RoomGame[]
     onAgain: () => void
     onRoom: () => void
     onLobby: () => void
@@ -101,6 +106,14 @@
   {#if mine?.flagged}
     <div class="flag">flagged: answers came in faster than a human hand</div>
   {/if}
+
+  <!-- Above the graph, because it answers the question that gets asked first:
+       the graph is this run under a microscope, and how the evening stands is
+       what everybody looks up at each other about. Four runs, not twelve — the
+       room screen is where the whole log lives. -->
+  <div class="session">
+    <Session {log} {selfId} limit={4} />
+  </div>
 
   <div class="graph">
     <Graph {samples} {steps} {pending} durSec={durMs / 1000} seats={seatList} />
@@ -213,6 +226,13 @@
     color: var(--danger);
     font-size: 12px;
     margin-top: 6px;
+  }
+
+  .session {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+    margin-top: 4vh;
   }
 
   .graph {

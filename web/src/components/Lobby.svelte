@@ -38,7 +38,7 @@
       </svg>
     </span>
   </h1>
-  <p class="sub">mental arithmetic, head to head — pick a name and a door.</p>
+  <p class="sub">zetamac mental arithmetic head to head duels with friends!</p>
 
   <input
     class="field name"

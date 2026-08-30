@@ -46,15 +46,32 @@ type gameInfo struct {
 	Scores []int    `json:"scores"`
 }
 
+// roomGame is one finished run, kept for as long as the room lives. Results
+// are in the roster order the run was played in, and carry the ids of players
+// who have since walked out — a record of the evening is worth nothing if it
+// forgets whoever left after losing.
+//
+// The config comes along because the host can change it between runs, and a
+// score means nothing without the settings it was scored under.
+type roomGame struct {
+	ID      string       `json:"id"`
+	Results []result     `json:"results"`
+	Cfg     *quiz.Config `json:"cfg,omitempty"`
+}
+
 // roomInfo is the whole of a room: who is in it, who runs it, what it is set
-// to, and whether the world can see it. Sent in full on every change — it is a
-// handful of names.
+// to, whether the world can see it, and what has been played in it. Sent in
+// full on every change — it is a handful of names and at most roomLogMax
+// short rows.
 type roomInfo struct {
 	Code    string       `json:"code"`
 	HostID  string       `json:"hostId"`
 	Members []playerInfo `json:"members"`
 	Cfg     *quiz.Config `json:"cfg"`
 	Public  bool         `json:"public"`
+	// Oldest first. Absent rather than empty until the room has played
+	// something — see the `omitempty` note in App.svelte.
+	Log []roomGame `json:"log,omitempty"`
 }
 
 // roomBrief is one row of the public-room list: enough to decide whether to

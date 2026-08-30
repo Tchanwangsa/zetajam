@@ -2,6 +2,7 @@
   import type { RoomInfo } from '../lib/net'
   import { colorFor } from '../lib/players'
   import { roomLink } from '../lib/room'
+  import Session from './Session.svelte'
   import { Globe, Lock } from '@lucide/svelte'
 
   /**
@@ -153,6 +154,13 @@
       <div class="waiting">waiting for {room.members.find((m) => m.id === room.hostId)?.name ?? 'the host'} to start</div>
     {/if}
     <button class="btn btn-ghost" onclick={onLeave}>leave</button>
+  </div>
+
+  <!-- Below the button rather than above it: the room screen's job is to get
+       the next run started, and the record of the last eight is what you read
+       while you are waiting for everyone to be ready. -->
+  <div class="log">
+    <Session log={room.log ?? []} {selfId} />
   </div>
 </section>
 
@@ -319,5 +327,12 @@
   .waiting {
     font-size: 13px;
     color: var(--muted);
+  }
+
+  .log {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+    margin-top: 36px;
   }
 </style>

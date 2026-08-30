@@ -156,7 +156,15 @@
 
     <div class="block" role="group" aria-label="match length">
       {#each TIMES as t (t)}
-        <button class="item" class:on={cfg.durSec === t} onclick={() => setDur(t)} {disabled}>
+        <!-- Pressed rather than merely lit: a preset is a choice among four,
+             and the lobby's pointer finds the chosen one by asking for it. -->
+        <button
+          class="item"
+          class:on={cfg.durSec === t}
+          aria-pressed={cfg.durSec === t}
+          onclick={() => setDur(t)}
+          {disabled}
+        >
           {t}
         </button>
       {/each}

@@ -17,6 +17,11 @@ const (
 	// Two correct answers closer together than this is not a human hand.
 	minAnswerGap = 120 * time.Millisecond
 	maxRoomSize  = 8
+	// How many finished runs a room remembers. Long enough that an evening
+	// reads back whole, short enough that the room frame — which goes out in
+	// full every time anyone joins, leaves or changes a setting — stays a
+	// thing you can send on every keystroke without thinking about it.
+	roomLogMax = 12
 	// Ambiguous glyphs are left out: a code gets read down a phone line.
 	codeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 	codeLen      = 4
@@ -73,6 +78,10 @@ type Room struct {
 	cfg     quiz.Config
 	match   *Match
 	public  bool
+	// Every run finished in this room, oldest first, capped at roomLogMax.
+	// This is the whole of the room's memory: it is born when the room is and
+	// dies with it, like everything else in here.
+	log []roomGame
 }
 
 type Hub struct {
@@ -295,7 +304,15 @@ func (h *Hub) roomFrameLocked(r *Room) (outbound, []*Client) {
 		members = append(members, playerInfo{ID: c.id, Name: c.name})
 	}
 	cfg := r.cfg
-	info := &roomInfo{Code: r.code, Members: members, Cfg: &cfg, Public: r.public}
+	info := &roomInfo{
+		Code:    r.code,
+		Members: members,
+		Cfg:     &cfg,
+		Public:  r.public,
+		// Copied, not aliased: the frame is marshalled outside the lock, and
+		// by then the next run may already have appended to the room's own.
+		Log: append([]roomGame(nil), r.log...),
+	}
 	if r.host != nil {
 		info.HostID = r.host.id
 	}
@@ -670,6 +687,14 @@ func (h *Hub) finish(m *Match, leaver *Client) {
 	var roomFrame outbound
 	var roomTo []*Client
 	if m.room != nil {
+		// Written before the frame is built, so the room screen everyone lands
+		// back on already has the run they just played on it. `results` is
+		// read-only from here on and shared with the `end` frame below.
+		cfg := m.cfg
+		m.room.log = append(m.room.log, roomGame{ID: m.id, Results: results, Cfg: &cfg})
+		if n := len(m.room.log); n > roomLogMax {
+			m.room.log = m.room.log[n-roomLogMax:]
+		}
 		roomFrame, roomTo = h.roomFrameLocked(m.room)
 	}
 	h.mu.Unlock()

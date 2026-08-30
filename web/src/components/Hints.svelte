@@ -6,13 +6,23 @@
    * starts a two-minute run of classic addition without ever learning that
    * either of those words was a choice.
    *
-   * The arrows are measured off the real elements rather than positioned by
-   * hand, so they keep pointing at the right pill when the bar reflows, when
-   * the custom-length chip widens from an icon to `95s`, or when the window
+   * Each arrow ends on the control that is *switched on* — under `classic`,
+   * under `120` — rather than somewhere along the block's edge. An arrowhead
+   * floating beside a pill is a gesture at a neighbourhood; one sitting under
+   * a word names it, which is the whole job. That is also why the last stretch
+   * of the curve comes in vertically: an arrow arriving at a shallow angle
+   * reads as passing by, and the pill it was meant for is only the nearest
+   * thing it happened to miss.
+   *
+   * Everything is measured off the real elements rather than positioned by
+   * hand, so the pointers keep their aim when the bar reflows, when the
+   * custom-length chip widens from an icon to `95s`, or when the window
    * changes size. That is also why they are drawn in a fixed layer over the
    * page instead of inside the bar: nothing here is allowed to push the
    * settings around.
    */
+
+  type Pt = { x: number; y: number }
 
   type Pin = {
     text: string
@@ -33,52 +43,64 @@
   // without landing on top of it, so there is nothing to draw.
   const MIN_W = 1180
 
+  // How far to the side of the block the writing starts, and how far below it.
+  const REACH = 46
+  const DROP = 74
+  // The tip stops just under the pill rather than on it — an arrow touching a
+  // button looks like it is trying to be one — but close enough that the gap
+  // reads as a hair's breadth rather than as a miss.
+  const GAP = 7
+
   let pins = $state<Pin[]>([])
   // An arrow that says "look here" has nothing left to say the moment you do.
   // Touching any of the three blocks retires both of them, which also keeps a
   // stray curve from running under a settings popover you have just opened.
   let gone = $state(false)
 
-  /**
-   * A quadratic curve from a to b, sampled and then nudged off itself by a sine
-   * that fades to nothing at both ends — a line drawn by a hand rather than a
-   * compass, but still starting and finishing exactly where it was asked to.
-   */
-  function shaft(ax: number, ay: number, bx: number, by: number, bend: number, phase: number) {
-    const dx = bx - ax
-    const dy = by - ay
-    const len = Math.hypot(dx, dy) || 1
-    const nx = -dy / len
-    const ny = dx / len
-    const cx = (ax + bx) / 2 + nx * bend
-    const cy = (ay + by) / 2 + ny * bend
+  const cubic = (a: Pt, c1: Pt, c2: Pt, b: Pt, t: number): Pt => {
+    const u = 1 - t
+    return {
+      x: u * u * u * a.x + 3 * u * u * t * c1.x + 3 * u * t * t * c2.x + t * t * t * b.x,
+      y: u * u * u * a.y + 3 * u * u * t * c1.y + 3 * u * t * t * c2.y + t * t * t * b.y,
+    }
+  }
 
+  /**
+   * The shaft: a cubic sampled and then nudged off itself by a sine that fades
+   * to nothing at both ends — a line drawn by a hand rather than a compass,
+   * but still leaving the label and landing on the pill exactly where it was
+   * asked to. The wobble is measured off the local tangent rather than the
+   * straight line between the ends, so the hook near the tip wanders along
+   * the curve instead of across it.
+   */
+  function shaft(a: Pt, c1: Pt, c2: Pt, b: Pt, phase: number) {
     const pts: string[] = []
-    const n = 30
+    const n = 34
+    let prev = a
     for (let i = 0; i <= n; i++) {
       const t = i / n
-      const u = 1 - t
-      const px = u * u * ax + 2 * u * t * cx + t * t * bx
-      const py = u * u * ay + 2 * u * t * cy + t * t * by
+      const p = cubic(a, c1, c2, b, t)
+      const dx = p.x - prev.x
+      const dy = p.y - prev.y
+      const len = Math.hypot(dx, dy) || 1
       const wob = Math.sin(t * 9 + phase) * 1.7 * Math.sin(Math.PI * t)
-      pts.push(`${(px + nx * wob).toFixed(1)} ${(py + ny * wob).toFixed(1)}`)
+      pts.push(`${(p.x - (dy / len) * wob).toFixed(1)} ${(p.y + (dx / len) * wob).toFixed(1)}`)
+      prev = p
     }
     return `M${pts.join(' L')}`
   }
 
-  // Two strokes off the tip, angled against the curve's last step so the head
-  // sits on the direction the line actually arrives from.
-  function head(ax: number, ay: number, bx: number, by: number, bend: number) {
-    const dx = bx - ax
-    const dy = by - ay
-    const len = Math.hypot(dx, dy) || 1
-    const a = Math.atan2(dy + (dx / len) * bend * 0.9, dx - (dy / len) * bend * 0.9)
+  // Two strokes off the tip, angled against the direction the curve arrives
+  // from — which, with the second handle parked directly below the tip, is
+  // straight up.
+  function head(b: Pt, from: Pt) {
+    const a = Math.atan2(b.y - from.y, b.x - from.x)
     const arm = (s: number) =>
-      `M${bx.toFixed(1)} ${by.toFixed(1)} L${(bx - 12 * Math.cos(a + s)).toFixed(1)} ${(
-        by -
-        12 * Math.sin(a + s)
+      `M${b.x.toFixed(1)} ${b.y.toFixed(1)} L${(b.x - 13 * Math.cos(a + s)).toFixed(1)} ${(
+        b.y -
+        13 * Math.sin(a + s)
       ).toFixed(1)}`
-    return `${arm(0.42)} ${arm(-0.42)}`
+    return `${arm(0.44)} ${arm(-0.44)}`
   }
 
   function measure() {
@@ -88,23 +110,31 @@
     }
     const next: Pin[] = []
     for (const t of TARGETS) {
-      const el = document.querySelector(t.sel)
-      if (!el) continue
-      const r = el.getBoundingClientRect()
+      const block = document.querySelector(t.sel)
+      if (!block) continue
+      const r = block.getBoundingClientRect()
+      // The setting that is on. Every control in these two blocks says so out
+      // loud for a screen reader already, so there is nothing to add to the
+      // markup and no class name to keep in step with — the aim comes off the
+      // same fact the announcement does. A block with nothing pressed (which
+      // no config produces, but the query cannot promise that) falls back to
+      // the middle of the block, which is never wrong, only vaguer.
+      const on = block.querySelector('[aria-pressed="true"]')?.getBoundingClientRect()
+
       const left = t.side === 'l'
-      // The tip stops a little under the pill rather than on it — an arrow
-      // touching a button looks like it is trying to be one.
-      const bx = left ? r.left + 26 : r.right - 30
-      const by = r.bottom + 10
-      const ax = left ? r.left - 52 : r.right + 74
-      const ay = r.bottom + (left ? 78 : 86)
-      const bend = left ? 26 : -26
+      const b = { x: on ? on.left + on.width / 2 : r.left + r.width / 2, y: r.bottom + GAP }
+      const a = { x: left ? r.left - REACH : r.right + REACH, y: r.bottom + DROP }
+      // Out of the label almost level, then up and around to come in under the
+      // pill from directly below.
+      const c1 = { x: a.x + (b.x - a.x) * 0.45, y: a.y + 3 }
+      const c2 = { x: b.x, y: b.y + (a.y - b.y) * 0.6 }
+
       next.push({
         text: t.text,
-        shaft: shaft(ax, ay, bx, by, bend, left ? 0 : 2.1),
-        head: head(ax, ay, bx, by, bend),
-        x: ax + (left ? -12 : 12),
-        y: ay,
+        shaft: shaft(a, c1, c2, b, left ? 0 : 2.1),
+        head: head(b, c2),
+        x: a.x + (left ? -10 : 10),
+        y: a.y,
         side: t.side,
       })
     }

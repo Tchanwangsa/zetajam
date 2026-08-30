@@ -440,6 +440,7 @@
         cfg={match.cfg}
         durMs={match.durMs}
         inRoom={!!room}
+        log={room?.log ?? []}
         onAgain={solo}
         onRoom={() => (phase = 'room')}
         onLobby={goLobby}

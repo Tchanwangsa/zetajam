@@ -19,6 +19,18 @@ export interface GameInfo {
   scores: number[]
 }
 
+/**
+ * One finished run, as the room remembers it. The results carry the ids of
+ * players who have since left, so a session's record does not quietly forget
+ * whoever walked out after losing — see lib/session.ts.
+ */
+export interface RoomGame {
+  id: string
+  results: MatchResult[]
+  /** What it was played on. The host can change the settings between runs. */
+  cfg?: Config
+}
+
 export interface RoomInfo {
   code: string
   hostId: string
@@ -26,6 +38,10 @@ export interface RoomInfo {
   cfg: Config
   /** Listed on the public board, or reachable only by its code. */
   public: boolean
+  /** Every run played in this room, oldest first, capped by the server.
+      Dropped from the frame entirely while the room has played nothing —
+      `omitempty` again, so it is not safe to read unguarded. */
+  log?: RoomGame[]
 }
 
 /** One row of the public board. Private rooms never appear in it. */
