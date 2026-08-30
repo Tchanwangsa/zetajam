@@ -5,6 +5,7 @@ import (
 	"flag"
 	"io/fs"
 	"log"
+	"mime"
 	"net/http"
 	"net/url"
 	"os"
@@ -114,6 +115,15 @@ func envOr(k, def string) string {
 		return v
 	}
 	return def
+}
+
+// Go's built-in table has no entry for .webmanifest, and a manifest served as
+// text/plain is a manifest the browser ignores. Vercel already knows this one;
+// the embedded binary has to be told.
+func init() {
+	if err := mime.AddExtensionType(".webmanifest", "application/manifest+json"); err != nil {
+		log.Printf("webmanifest mime type: %v", err)
+	}
 }
 
 // spa serves the built frontend, falling back to index.html so client-side

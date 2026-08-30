@@ -3,18 +3,86 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
-    <title>zetajam</title>
+
+    <title>zetajam — mental arithmetic duels with friends</title>
+    <meta
+      name="description"
+      content="Mental arithmetic, head to head. Race the clock solo or fill a room of eight — classic, ramp or rush, your own operations and ranges, no sign-up."
+    />
+    <link rel="canonical" href="%SITE_URL%/" />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+
+    <!-- The address bar takes the same two backgrounds app.css does. -->
+    <meta name="theme-color" content="#fbfbfc" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0f0f11" media="(prefers-color-scheme: dark)" />
+
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;600&family=Outfit:wght@100..900&display=swap"
       rel="stylesheet"
     />
-    <meta name="description" content="Mental arithmetic, head to head." />
-    <link
-      rel="icon"
-      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>%F0%9F%9F%A1</text></svg>"
+
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="mask-icon" href="/favicon.svg" color="#b8860b" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+
+    <!-- Open Graph. The image path has to be absolute — a scraper is not on
+         this origin — which is the whole reason SITE_URL is substituted in at
+         build time rather than written out here. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="zetajam" />
+    <meta property="og:locale" content="en" />
+    <meta property="og:url" content="%SITE_URL%/" />
+    <meta property="og:title" content="zetajam — mental arithmetic duels with friends" />
+    <meta
+      property="og:description"
+      content="Mental arithmetic, head to head. Race the clock solo or fill a room of eight — classic, ramp or rush, your own operations and ranges, no sign-up."
     />
+    <meta property="og:image" content="%SITE_URL%/og.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="The zetajam wordmark over two rising score lines, one gold and ahead of the other."
+    />
+
+    <!-- Twitter wants 2:1, so it gets its own crop rather than a letterboxed og.png. -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="zetajam — mental arithmetic duels with friends" />
+    <meta
+      name="twitter:description"
+      content="Mental arithmetic, head to head. Race the clock solo or fill a room of eight — classic, ramp or rush, your own operations and ranges, no sign-up."
+    />
+    <meta name="twitter:image" content="%SITE_URL%/twitter.png" />
+    <meta
+      name="twitter:image:alt"
+      content="The zetajam wordmark over two rising score lines, one gold and ahead of the other."
+    />
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "zetajam",
+        "url": "%SITE_URL%/",
+        "description": "Mental arithmetic, head to head. Race the clock solo or fill a room of eight — classic, ramp or rush, your own operations and ranges, no sign-up.",
+        "applicationCategory": "GameApplication",
+        "browserRequirements": "Requires JavaScript and WebSocket support",
+        "operatingSystem": "Any",
+        "isAccessibleForFree": true,
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+        "featureList": [
+          "Solo runs against the clock",
+          "Rooms of up to eight, public or behind a four-character code",
+          "Classic, ramp and rush modes",
+          "Configurable operations, term ranges and match length",
+          "Live pace graph with a per-question breakdown"
+        ]
+      }
+    </script>
   </head>
   <body>
     <div id="app"></div>

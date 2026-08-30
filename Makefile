@@ -75,4 +75,15 @@ deploy:
 		$(if $(ORIGINS),--set-env-vars ORIGINS=$(ORIGINS),)
 
 clean:
-	rm -rf bin web/dist server/dist/assets server/dist/index.html
+	# server/dist is generated in full — the bundle, the icons and the crawler
+	# files alike — so the directory goes wholesale, rather than a list of its
+	# contents that the next asset added would quietly fall off the end of.
+	#
+	# It comes back holding .gitkeep, because `go:embed all:dist` fails on a
+	# missing directory and that would leave `make check` unable to vet the
+	# server until somebody built the frontend. A real build empties the
+	# directory again, .gitkeep included, and by then there is a bundle in
+	# there for embed to find.
+	rm -rf bin web/dist server/dist
+	mkdir -p server/dist
+	touch server/dist/.gitkeep

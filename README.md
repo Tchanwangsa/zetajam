@@ -107,6 +107,14 @@ itself. Same-origin and localhost are always allowed. `web/vercel.json` and
 `web/public/_redirects` carry the rewrite that keeps `/r/CODE` links from
 404ing.
 
+`VITE_SITE_URL` is the page's own public address, and it is a different thing
+from `VITE_WS_URL`: the canonical link, the Open Graph and Twitter tags, the
+JSON-LD, `robots.txt` and `sitemap.xml` are all built from it, and all of them
+need an absolute URL because the crawler reading them is never on this origin.
+`web/vite.config.ts` substitutes it into `index.html` and writes the two
+crawler files, so there is one hostname to change rather than five. It has a
+default; set it when the page ships somewhere else.
+
 ### CI
 
 `.github/workflows/ci.yml` runs the checks on every push and pull request, and
