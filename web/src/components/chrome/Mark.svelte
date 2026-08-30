@@ -1,14 +1,8 @@
 <script lang="ts">
   /**
-   * The wordmark's other half: a cloud with the four operations working away
-   * inside it.
-   *
-   * Everything in here is `currentColor`, so it is the brand link that decides
-   * what colour it is — including on hover, where the text goes accent and the
-   * mark goes with it. Nothing is themed in this file, which is the point.
-   *
-   * The same drawing is `public/favicon.svg`; that copy carries its own colours
-   * because a favicon has no text around it to inherit from.
+   * All `currentColor`, so the brand link decides the colour, hover included.
+   * The same drawing is `public/favicon.svg`, which carries its own colours
+   * because a favicon has no text to inherit from.
    */
   let { size = 26 }: { size?: number } = $props()
 </script>

@@ -1,9 +1,7 @@
-// Mirror of internal/quiz/config.go.
-//
-// The server normalizes whatever a client sends and echoes the result back in
-// the match frame, and that echoed copy is the one the generator runs on. The
-// normalize() here is for the settings UI — so the bar shows you the same
-// numbers the server would have picked — not for gameplay.
+// Mirror of internal/quiz/config.go. The server normalizes what a client sends
+// and echoes it back in the match frame; that copy is what the generator runs
+// on. normalize() here is for the settings UI — so the bar shows the numbers
+// the server would pick — not for gameplay.
 
 export type Op = 'add' | 'sub' | 'mul' | 'div'
 
@@ -11,10 +9,9 @@ export type Op = 'add' | 'sub' | 'mul' | 'div'
 export const OPS: readonly Op[] = ['add', 'sub', 'mul', 'div']
 
 /**
- * The two operations that own a range. The other two are these read backwards
- * — `a + b` shown as `(a+b) − a`, `a × b` shown as `(a×b) ÷ a` — which is what
- * keeps every answer a clean positive integer, and why the settings panel
- * offers two ranges rather than four. Mirror of quiz.Forward.
+ * The two operations that own a range. Mirror of quiz.Forward. The other two
+ * are these read backwards — `a + b` as `(a+b) − a` — which keeps every answer
+ * a clean positive integer, and is why the panel offers two ranges not four.
  */
 export const FORWARD: readonly Op[] = ['add', 'mul']
 
@@ -33,16 +30,9 @@ export const OP_NAME: Record<Op, string> = {
 export type Range = [number, number, number, number]
 
 /**
- * The three shapes a run can take. Mirror of quiz.ModeClassic / ModeRamp /
- * ModeRush.
- *
- * Classic draws every question from one fixed pair of ranges — the ones in the
- * config. Ramp ignores them and walks its own curve instead, opening easier than
- * anything the bar offers and climbing until it tops out at RAMP_TOP. Rush draws
- * from the config's ranges exactly as classic does and changes the rules rather
- * than the numbers: one question stands in front of everybody at once for up to
- * RUSH_SEC, and the first correct answer to reach the server takes the only
- * point it is worth — and ends the question there and then, for everybody.
+ * Mirror of quiz.ModeClassic / ModeRamp / ModeRush. Classic draws from the
+ * config's ranges; ramp ignores them for its own curve to RAMP_TOP; rush
+ * stands one question in front of everybody, and the first correct answer wins.
  */
 export type Mode = 'classic' | 'ramp' | 'rush'
 
@@ -54,33 +44,22 @@ export const MODE_NAME: Record<Mode, string> = {
   rush: 'rush',
 }
 
-/** Mirror of quiz.RushSec. One slot, one question, one point — and RUSH_SEC is
-    how long it stands only if nobody takes it. */
+/** Mirror of quiz.RushSec. One slot, one question, one point. RUSH_SEC is how
+    long it stands only if nobody takes it. */
 export const RUSH_SEC = 5
 export const RUSH_MS = RUSH_SEC * 1000
 
 /** Mirror of quiz.RushGapMs. The beat between a slot being taken and the next
-    one opening — long enough that the winner's own screen does not swap the
-    equation out mid-keystroke, and shorter than the eye needs to read a name,
-    because the verdict line carries into the next slot rather than going with
-    this one. Must stay positive: it is the floor on how long a slot lasts, and
-    what makes the fold below terminate. */
+    opening: long enough not to swap the equation out mid-keystroke, shorter
+    than reading a name takes (the verdict line carries into the next slot).
+    Must stay positive — it is the floor on a slot's length, and what makes the
+    fold below terminate. */
 export const RUSH_GAP_MS = 300
 
 /**
- * The millisecond at which the slot after the one that opened at `open`
- * begins. Mirror of quiz.RushNext.
- *
- * A rush schedule is not a function of the clock; it is this fold over the run
- * so far. Slot 0 opens at 0, and each slot after it opens either RUSH_GAP_MS
- * after the claim that settled its predecessor or RUSH_MS after that
- * predecessor opened, whichever comes first — `claimed` is false for a slot
- * nobody took, and then only the second term applies.
- *
- * Nothing is sent to drive the turnover. A claim frame already carries the
- * slot and the millisecond it landed on, so every screen in the room folds the
- * same history into the same boundaries, and the question stream stays what it
- * has always been: a pure function of (seed, index, cfg).
+ * The millisecond the slot after `open` begins. Mirror of quiz.RushNext. The
+ * schedule is a fold over the run so far, not the clock: nothing drives the
+ * turnover on the wire; every screen folds the same claims the same way.
  */
 export function rushNext(open: number, ms: number, claimed: boolean): number {
   const end = open + RUSH_MS
@@ -89,10 +68,9 @@ export function rushNext(open: number, ms: number, claimed: boolean): number {
 }
 
 /**
- * The fewest questions a rush run of this length gets through — what it holds
- * if every slot runs its full RUSH_SEC out. Every slot somebody takes early
- * buys the run another one, so this is a floor, not a count. Mirror of
- * quiz.RushSlots.
+ * The fewest questions a rush run of this length gets through: what it holds
+ * if every slot runs its full RUSH_SEC. A floor, not a count — every slot
+ * taken early buys another. Mirror of quiz.RushSlots.
  */
 export const rushSlots = (durSec: number) => Math.max(1, Math.ceil((durSec * 1000) / RUSH_MS))
 
@@ -105,32 +83,18 @@ export interface Level {
 }
 
 /**
- * The ramp climbs in two acts. Mirror of quiz.RampEvery / RampWide / RampTop.
- *
- * Through RAMP_WIDE the ceilings rise and the numbers simply get bigger. From
- * there to RAMP_TOP the ceilings hold and only the floors are still moving, so
- * nothing new gets harder — the easy draws just stop turning up. That second
- * act is what keeps the top of the ramp from running away: it tightens the
- * band instead of raising it, which is a real increase in difficulty that
- * costs nothing in headroom.
- *
- * The floors are the reason for the split. Pinned at 2, a level-20 run still
- * deals `4 + 7` out of a 2–300 range often enough to notice, and that reads as
- * the generator being erratic rather than as a curve. So floors climb too — on
- * the longer of the two timelines, so the band widens through the first act
- * before the second act closes it up.
+ * Mirror of quiz.RampEvery / RampWide / RampTop. Through RAMP_WIDE the
+ * ceilings rise; after it only the floors move, so the easy draws stop turning
+ * up — a level-20 run dealing `4 + 7` out of 2–300 reads as an erratic curve.
  */
 export const RAMP_EVERY = 2
 export const RAMP_WIDE = 20
 export const RAMP_TOP = 30
 
-/** One edge of one operand range: where it opens and where it stops. Six of
-    them are the whole ramp. Mirror of quiz.rampAddLo and friends.
-
-    Addition grows on both terms at once — 40 + 40 is the same kind of problem
-    as 4 + 4 with more carrying in it. Multiplication does not: the multiplier
-    is what makes it hard, so that side crawls, never past the times tables,
-    while the number it multiplies climbs at addition's rate. */
+/** One edge of one operand range. Six of them are the whole ramp. Mirror of
+    quiz.rampAddLo and friends. Addition grows on both terms at once — 40 + 40
+    is 4 + 4 with carrying — but multiplication does not: the multiplier is what
+    makes it hard, so that side crawls and never leaves the times tables. */
 const RAMP_ADD_LO: Bound = [2, 200]
 const RAMP_ADD_HI: Bound = [10, 300]
 const RAMP_MUL_LO: Bound = [2, 6]
@@ -141,24 +105,17 @@ const RAMP_BY_HI: Bound = [10, 150]
 type Bound = [from: number, to: number]
 
 /**
- * The level question `i` falls on — 1 for the first RAMP_EVERY questions of a
- * run, and never past RAMP_TOP. Mirror of quiz.RampLevelOf.
- *
- * A pure function of the index alone — not of the clock. The ramp used to
- * scale its steps to the run length so a short sprint still saw the whole of
- * it; it no longer does, so question `i` is the same difficulty under any
- * length and a short run simply sees the bottom of the ramp.
+ * The level question `i` falls on — 1 for the first RAMP_EVERY questions, never
+ * past RAMP_TOP. Mirror of quiz.RampLevelOf. A pure function of the index, not
+ * the clock: question `i` is the same difficulty under any run length.
  */
 export const rampLevelOf = (i: number) =>
   i < 1 ? 1 : Math.min(RAMP_TOP, 1 + Math.floor(i / RAMP_EVERY))
 
 /**
- * The ranges at level `n`. Mirror of quiz.RampLevel.
- *
- * Each bound walks a straight line from where it opens to where it stops: the
- * ceilings over RAMP_WIDE levels, the floors over the whole RAMP_TOP. Integer
- * arithmetic on both sides of the wire, spelled out rather than left to a
- * float, because the two generators have to agree exactly.
+ * The ranges at level `n`. Mirror of quiz.RampLevel. Each bound walks a straight
+ * line from open to stop: ceilings over RAMP_WIDE levels, floors over the whole
+ * RAMP_TOP. Integer arithmetic spelled out, since the generators must agree.
  */
 export function rampLevel(n: number): Level {
   const lv = Math.min(RAMP_TOP, Math.max(1, Math.trunc(n)))
@@ -173,9 +130,8 @@ export function rampLevel(n: number): Level {
       at(bLo, k, RAMP_TOP - 1),
       at(bHi, c, RAMP_WIDE - 1),
     ]
-    // Unreachable with the bounds above; here because they are meant to be
-    // tuned by hand, and a floor tuned past its own ceiling would otherwise
-    // reach the generator as an empty range.
+    // Unreachable with the bounds above, but they are tuned by hand and a
+    // floor past its own ceiling would reach the generator as an empty range.
     if (r[1] < r[0]) r[1] = r[0]
     if (r[3] < r[2]) r[3] = r[2]
     return r
@@ -186,8 +142,8 @@ export function rampLevel(n: number): Level {
   }
 }
 
-/** The question level `n` opens on — the inverse of rampLevelOf, and what the
-    settings panel previews the ramp with. */
+/** The question level `n` opens on. Inverse of rampLevelOf; the settings panel
+    previews the ramp with it. */
 export const rampStart = (n: number) => (Math.max(1, Math.trunc(n)) - 1) * RAMP_EVERY
 
 export interface Config {
@@ -197,8 +153,8 @@ export interface Config {
   durSec: number
 }
 
-/** The range `op` draws from for question `i` — the config's own in classic and
-    in rush, the level's in ramp. Mirror of quiz.Config.RangeFor. */
+/** The range `op` draws from for question `i`: the config's own in classic and
+    rush, the level's in ramp. Mirror of quiz.Config.RangeFor. */
 export function rangeFor(c: Config, op: Op, i: number): Range {
   if (c.mode !== 'ramp') return c.ranges[op]
   const l = rampLevel(rampLevelOf(i))
@@ -245,8 +201,7 @@ export function normalize(c: Partial<Config> | null | undefined): Config {
 
   ranges.sub = [...ranges.add] as Range
 
-  // The first multiplication operand becomes the divisor, and the one value it
-  // cannot take is zero.
+  // The first multiplication operand becomes the divisor, which cannot be 0.
   const div = [...ranges.mul] as Range
   if (div[0] < 1) {
     div[0] = 1
@@ -270,10 +225,8 @@ export function isDefault(c: Config): boolean {
 
 /**
  * Mirror of quiz.Config.Sig — two configs that would produce the same run have
- * the same signature. Used here to tell a real settings change from a no-op.
- *
- * A ramp run leaves the ranges out because it never reads them: two ramp runs
- * would otherwise differ over numbers neither one would have used.
+ * the same signature. Tells a real settings change from a no-op. Ramp leaves
+ * the ranges out because it never reads them.
  */
 export function sig(c: Config): string {
   return [

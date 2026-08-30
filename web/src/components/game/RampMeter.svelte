@@ -1,23 +1,10 @@
 <script lang="ts">
-  import { RAMP_EVERY, RAMP_TOP, rampLevel, rampLevelOf } from '../lib/config'
+  import { RAMP_EVERY, RAMP_TOP, rampLevel, rampLevelOf } from '../../lib/config'
 
   /**
-   * How far up the ramp you are, while you are on it.
-   *
-   * A ramp run changes the numbers under you without saying so, which reads as
-   * the generator being erratic rather than as a difficulty curve — the run
-   * looks identical to a classic one until you notice the terms have grown.
-   *
-   * This used to be three bars filling up, because there used to be three rungs
-   * and a top one to reach. There are thirty now, which is too many to draw and
-   * far more than most runs get through, so the number carries it instead. What
-   * is left of the old meter is the ascending mark, a label rather than a
-   * gauge, and the pips — the one thing still worth counting, because "one more
-   * question and it steps up" is the whole rhythm of the mode.
-   *
-   * The pips give way to `top` at RAMP_TOP. There is a real end to the ramp and
-   * reaching it is worth saying out loud; leaving two pips there that never
-   * fill would say the opposite.
+   * How far up the ramp you are — without it a ramp run reads as an erratic
+   * generator, not a curve. Thirty levels is too many to draw, so the number
+   * carries it; pips give way to `top` at RAMP_TOP, where they'd never fill.
    */
   let { i = 0 }: { i?: number } = $props()
 
@@ -58,8 +45,9 @@
     color: var(--muted);
   }
 
-  /* Three ascending bars — the same mark the mode wears in the settings bar,
-     lit rather than filling, because it is no longer counting anything. */
+  /* Three ascending bars, lit rather than filling — the number beside them does
+     the counting. The settings bar draws this mode with a lucide arrow, so the
+     shape lives only here. */
   .mark {
     display: inline-flex;
     align-items: flex-end;
@@ -85,15 +73,13 @@
 
   .lbl {
     color: var(--accent);
-    /* The number is the one thing here that changes, and it changes to a wider
-       one every so often. Tabular digits keep the pips beside it from stepping
-       sideways when it does. */
+    /* The number widens as it climbs; tabular digits keep the pips beside it
+       from stepping sideways when it does. */
     font-variant-numeric: tabular-nums;
   }
 
-  /* How far into this level you are — one pip per question, cleared at each
-     step up. Deliberately not a countdown to a time: the run already has one
-     clock in it. */
+  /* One pip per question, cleared at each step up. Deliberately not a countdown
+     to a time: the run already has one clock in it. */
   .pips {
     display: inline-flex;
     align-items: center;

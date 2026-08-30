@@ -1,11 +1,7 @@
 /**
  * Room deep links. `zetajam.app/r/QK4M` opens straight onto the join screen
- * with the code already filled in, which is the whole point of a four-character
- * code — it survives being read out loud, pasted into a chat, or typed wrong
- * in a way you can see.
- *
- * Path form is the shareable one. The query form is kept because a static host
- * without a rewrite rule will 404 on the path, and `?room=` always works.
+ * with the code filled in. Path form is the shareable one; the query form is
+ * kept because a static host without a rewrite rule 404s on the path.
  */
 
 export const CODE_LEN = 4
@@ -36,9 +32,9 @@ export function roomLink(code: string): string {
 }
 
 /**
- * Reflect the room in the address bar without a reload, so the link is right
- * there to copy and the back button behaves. Replaces rather than pushes —
- * a room is a place you are, not a page you visited.
+ * Reflect the room in the address bar without a reload, so the link is there
+ * to copy. Replaces rather than pushes: a room is a place you are, not a page
+ * you visited.
  */
 export function setURL(code: string | null) {
   const next = code ? `/r/${code}` : '/'

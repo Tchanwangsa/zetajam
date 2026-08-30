@@ -1,17 +1,15 @@
 import type { PlayerInfo } from './net'
 
 /**
- * Line colours. You are always the accent, whatever seat you are in — the
- * graph is yours to read first — and everybody else takes the next free slot
- * in roster order, so a colour means the same person on every screen in the
- * room.
+ * Line colours. You are always the accent; everybody else takes the next free
+ * slot in roster order, so a colour means the same person on every screen.
  */
 export const SEATS = 7
 
 export function colorFor(index: number, youIndex: number): string {
   if (youIndex >= 0 && index === youIndex) return 'var(--accent)'
-  // Skip your seat so the palette does not run out early in a full room. A
-  // spectator has no seat, so nothing is skipped and nobody gets the accent.
+  // Skip your seat so the palette lasts in a full room. A spectator has no
+  // seat, so nothing is skipped and nobody gets the accent.
   const slot = youIndex >= 0 && index > youIndex ? index - 1 : index
   return `var(--p${(slot % SEATS) + 1})`
 }

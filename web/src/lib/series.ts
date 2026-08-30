@@ -1,18 +1,7 @@
 /**
- * Graph maths. The y axis is cumulative answers — the number on the scoreboard,
- * plotted — so the line is the score, not a derivative of it.
- *
- * That choice does most of the anti-jitter work on its own: a running total is
- * monotonic, so the peak only ever grows, so the axis only ever grows, so it
- * can never snap back. What is left is two rules:
- *
- *  1. Sample on a fixed 1Hz clock, never on a network event. The old version
- *     redrew on every opponent keystroke, so the line danced to their typing.
- *  2. Fixed x domain (0..duration). It cannot rescale because it never grows.
- *
- * The curve is drawn as stairs, never point to point. A rate needed smoothing
- * to read as a trend; a step count does not — the steps are the information,
- * and a diagonal between two readings would draw answers arriving in fractions.
+ * Graph maths. The y axis is cumulative answers, so it only grows and never
+ * snaps back; the x domain is fixed at 0..duration. Sample on a fixed 1Hz
+ * clock, never on a network event, or the line dances to an opponent's typing.
  */
 
 export interface Sample {
@@ -26,11 +15,9 @@ export interface Sample {
 const r1 = (v: number) => Math.round(v * 10) / 10
 
 /**
- * A round axis step for a maximum: 1, 2, 2.5, 5 or 10 times a power of ten.
- * Keeps a 12-answer warm-up and a 300-answer marathon equally readable.
- *
- * The 2.5 rung is dropped below a magnitude of ten, because the axis counts
- * answers and nobody has given two and a half of one.
+ * A round axis step: 1, 2, 2.5, 5 or 10 times a power of ten. Keeps a
+ * 12-answer warm-up and a 300-answer marathon equally readable. The 2.5 rung
+ * is dropped below a magnitude of ten — nobody gives two and a half answers.
  */
 export function niceStep(max: number, count = 4): number {
   const raw = Math.max(1, max / count)
@@ -43,8 +30,8 @@ export function niceStep(max: number, count = 4): number {
 
 /**
  * The y ceiling: the running peak rounded up to a whole number of axis steps,
- * never below `floor`. Because the peak of a cumulative series can only grow,
- * so can this — which is the whole trick to an axis that does not twitch.
+ * never below `floor`. A cumulative peak only grows, so neither does this ever
+ * shrink — the whole trick to an axis that does not twitch.
  */
 export function ceilMax(peak: number, floor = 10): number {
   const target = Math.max(floor, peak)
@@ -60,9 +47,8 @@ export function ticks(max: number): number[] {
 }
 
 /**
- * Hold each reading until the next one, then jump: the stair shape a
- * cumulative count actually has. A sampled series only knows what the score
- * was at each reading, so the value in between is the earlier one — sloping
+ * Hold each reading until the next, then jump. A sampled series only knows the
+ * score at each reading, so the value in between is the earlier one — sloping
  * across the gap invents a climb that never happened.
  */
 export function stepPoints(pts: Array<[number, number]>): Array<[number, number]> {

@@ -244,6 +244,117 @@ input {
   color: var(--faint);
 }
 
+/* A `.micro` label with something small pinned to its right — how many runs
+   the session log is counting, how many rooms on the board are open. Baselines
+   rather than centres, so the two halves sit on one line of type instead of
+   being two boxes that happen to overlap. */
+.micro-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+/* The right-hand half is a count, not a second label, so it gives back the
+   capitals and the tracking it inherited from the `.micro` beside it. */
+.micro-note {
+  color: var(--faint);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* A word in small capitals annotating whatever is next to it — host, you, won,
+   flagged, the state column on the room board. Small enough that it reads as a
+   note in the margin rather than as part of the sentence, which is the whole
+   job; the one place it stands on its own, a column of its own on the board,
+   takes the extra pixel through --tag-size. */
+.tag {
+  font-size: var(--tag-size, 10px);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+/* The quiet line under something, saying what it means or that there is
+   nothing there yet. Faint and small, so it is read after the thing it is
+   about rather than before it; the two that want a size up set --note-size
+   instead of declaring the whole thing over again. */
+.note {
+  font-size: var(--note-size, 11px);
+  color: var(--faint);
+}
+
+/* One line that would rather be cut short than wrap. It is on nine things —
+   every name, every settings summary, every scoreboard label — because a name
+   long enough to wrap is a name long enough to push the numbers beside it out
+   of the column they share with every other row. Being *allowed* to shrink is
+   still the caller's problem: `min-width: 0` on a flex child, `minmax(0, 1fr)`
+   in a grid. Without that this rule has nothing to do. */
+.trunc {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- screens and lists -------------------------------------------------- */
+
+/* Every screen is the same column: stacked, centred, and pushed down off the
+   settings bar by an amount that is its own business — a lobby that is mostly
+   empty starts lower than a room that is mostly list — so the drop is a
+   property each one sets on itself rather than a number in here. */
+.screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: var(--screen-pad, 4vh);
+}
+
+/* A row in a list you click into: a game to watch on the lobby, a room to join
+   on the board. Muted until the pointer is on it, which is what says the whole
+   row is the target and not the one word in it that looks like a link. Whether
+   it is a flex row or a grid of columns is the list's own business. */
+.listrow {
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--muted);
+  transition: background 120ms ease, color 120ms ease;
+}
+.listrow:hover:not(:disabled) {
+  background: var(--panel);
+  color: var(--text);
+}
+.listrow:disabled {
+  cursor: default;
+  color: var(--faint);
+}
+
+/* A line with somebody on it: their colour, their name, and whatever the
+   screen has to say about them. The room roster, the head to head standings
+   and the ranked table are the same line three times over, and the only thing
+   the three of them disagree about is how much air it gets, so the padding
+   stays behind with each of them. */
+.roster {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+/* The one with your name on it. */
+.roster.you {
+  background: var(--grid);
+}
+/* The name in one of those rows. It takes whatever width the fixed columns
+   beside it — a dot, a badge, a score — do not want, and `min-width: 0` is
+   what makes it give that width back: without it a flex item refuses to
+   shrink below its content, so one long name pushes the numbers out of the
+   column they share with every other row instead of being cut short. Pairs
+   with `.trunc`, which is the half that does the cutting. */
+.roster-name {
+  flex: 1;
+  min-width: 0;
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     animation-duration: 0.01ms !important;

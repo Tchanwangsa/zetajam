@@ -2,13 +2,9 @@
   import { untrack } from 'svelte'
 
   /**
-   * A small integer input that only ever hands its parent a clamped value.
-   *
-   * Typing is left completely alone — writing "1" on the way to "150" must not
-   * be rewritten under the cursor — so clamping happens once, on commit, which
-   * is blur or Enter. Everything that takes a number in this app goes through
-   * here, because the alternative was four copies of that rule and one of them
-   * silently dropping the value you typed.
+   * Typing is left alone — "1" on the way to "150" must not be rewritten under
+   * the cursor — so clamping happens once, on blur or Enter. Every number in
+   * the app goes through here rather than through four copies of that rule.
    */
   let {
     value,
@@ -30,13 +26,11 @@
     autofocus?: boolean
   } = $props()
 
-  // Seeded once and then owned by the keyboard — the $effect below is what
-  // pulls it back in step when the value changes from somewhere else.
+  // Seeded once, then owned by the keyboard; the $effect below resyncs it.
   let text = $state(untrack(() => String(value)))
   let el = $state<HTMLInputElement>()
 
-  // Resync when the value changes from somewhere else — the host editing the
-  // room settings, "restore defaults", a preset chip.
+  // The host editing room settings, "restore defaults", a preset chip.
   $effect(() => {
     const v = value
     untrack(() => {

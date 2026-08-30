@@ -1,14 +1,7 @@
 /**
- * The log of your own answers — one entry per question you got right, with the
- * question itself and how long it took.
- *
- * This is deliberately *not* the same data as a Sample. Samples are a 1Hz
- * snapshot of everybody's score, taken on a fixed clock so an opponent's
- * keystroke can never move the graph; they are the only thing available for
- * somebody else's line, because their answers reach this browser as a score
- * and nothing more. Your own answers happen here, so they can be recorded
- * exactly: the real timestamp, the real question, the real gap since the last
- * one. That is what the graph hangs a tooltip off.
+ * Your own answers, one entry per question you got right. Not a Sample: those
+ * are a 1Hz snapshot of everybody's score, all that is available for somebody
+ * else's line. Yours happen here, so the graph can hang a tooltip off them.
  */
 export interface Step {
   /** Index in the question stream. */

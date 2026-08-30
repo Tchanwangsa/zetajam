@@ -1,7 +1,5 @@
-// xorshift32 + the murmur3 finalizer.
-//
-// This file is a bit-for-bit mirror of server/rng.go. `npm run parity` checks
-// that claim; if you change one file, change the other.
+// xorshift32 + the murmur3 finalizer. A bit-for-bit mirror of server/rng.go —
+// `npm run parity` checks that; change one file, change the other.
 
 export function mix32(h: number): number {
   h = (h ^ (h >>> 16)) >>> 0

@@ -3,17 +3,9 @@ import type { RoomGame } from './net'
 import { SEATS } from './players'
 
 /**
- * What the room's log means, read from one seat in it.
- *
- * Two questions, one pass over the same rows. "How am I doing against her" is
- * the one people actually ask out loud, and it is not answered by a pile of
- * final scores: a run you both played in is a head-to-head result, a run one
- * of you sat out is not, and a room where five people have drifted in and out
- * all evening has a different set of shared runs for every pair in it.
- *
- * Ids are per-connection, so a player who reloads comes back as a stranger
- * with the same name. That is the honest reading of "this session" — the
- * record belongs to the room, and the room's memory ends when it empties.
+ * What the room's log means, read from one seat in it. Only a run you both
+ * played in is a head-to-head result, so every pair in the room has a different
+ * set of shared runs. Ids are per-connection: a reload comes back as a stranger.
  */
 
 /** Your record against one other player, over the runs you both played. */
@@ -56,12 +48,9 @@ export interface Session {
 }
 
 /**
- * A colour per person, held for the whole session.
- *
- * Not the same thing as the seat colours a single run is drawn in: those are
- * keyed to roster position, so the same person is a different colour in a run
- * they joined late. Here a colour has to mean one person across every row on
- * the screen, so it is handed out by first appearance in the log and kept.
+ * A colour per person, held for the whole session. Not the seat colours a run
+ * is drawn in — those are keyed to roster position, so the same person changes
+ * colour in a run they joined late. Here it is handed out by first appearance.
  */
 function palette(log: RoomGame[], selfId: string): (id: string) => string {
   const order: string[] = []
@@ -100,10 +89,10 @@ export function digest(log: RoomGame[], selfId: string): Session {
     if (me) {
       if (g.results.length < 2) outcome = 'solo'
       else {
-        // Against the room, not against the winner: in a run of five, second
-        // place lost. The head-to-head tallies below read it pair by pair
-        // instead, which is why the two can disagree — you can lose a run and
-        // still have beaten the one person you were watching.
+        // Against the room, not the winner: in a run of five, second place
+        // lost. The tallies below read it pair by pair instead, so the two can
+        // disagree — you can lose a run and still beat the one person you
+        // were watching.
         const best = Math.max(...g.results.filter((r) => r.id !== selfId).map((r) => r.score))
         outcome = me.score > best ? 'won' : me.score < best ? 'lost' : 'drew'
       }
@@ -119,9 +108,8 @@ export function digest(log: RoomGame[], selfId: string): Session {
           lost: 0,
           played: 0,
         }
-        // The latest name they went by. Renaming mid-session is one line in
-        // the room roster, and a record filed under the name they have since
-        // dropped reads as somebody else entirely.
+        // The latest name they went by — a record filed under a name they
+        // have since dropped reads as somebody else.
         h.name = r.name
         h.played++
         if (me.score > r.score) h.won++
@@ -135,8 +123,8 @@ export function digest(log: RoomGame[], selfId: string): Session {
   })
 
   return {
-    // Most-played first, then by how it is going — the person you have played
-    // all evening belongs at the top, not whoever happened to join last.
+    // Most-played first: the person you have played all evening belongs at
+    // the top, not whoever joined last.
     heads: [...heads.values()].sort((a, b) => b.played - a.played || b.won - a.won),
     runs: runs.reverse(),
   }

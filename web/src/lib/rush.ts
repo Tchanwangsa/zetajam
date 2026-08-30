@@ -1,18 +1,7 @@
 /**
- * A rush run laid out as the questions it actually contained.
- *
- * The graph hangs its tooltip off `steps` in every other mode, and `steps` is
- * the log of *your own answers* — which in rush is a log of the questions you
- * won and nothing else. That is a poor description of a rush run: most of what
- * happened in one happened to somebody else, or to nobody, and a run where you
- * took four of thirty questions would be a graph you could ask four questions
- * of.
- *
- * So rush gets its own timeline. Every slot the run held is in it, whoever
- * ended up with it, because every slot is knowable here: the questions are a
- * pure function of the seed, the boundaries are the fold in `rushNext` over
- * the claims, and the claims are exactly what the server has been sending all
- * along. Nothing extra travels for this.
+ * A rush run laid out as the questions it contained. `steps` holds only the
+ * questions you won, so rush gets its own timeline — and nothing extra travels:
+ * questions are pure in the seed, boundaries a `rushNext` fold over the claims.
  */
 import { RUSH_MS, rushNext, type Config } from './config'
 import { question } from './questions'
@@ -27,13 +16,9 @@ export interface Slot {
   /** Seconds into the run at which it came down, or the run ended. */
   to: number
   /**
-   * How long it stood before the buzz that took it — the answer to "how fast
-   * was that", which is the question a rush run actually asks. Not the gap
-   * since your own previous answer, which is what a Step carries and which
-   * means nothing here: the questions in between were not yours to answer.
-   *
-   * Null for a slot nobody took. It stood the full five seconds by definition,
-   * so the number would carry no information.
+   * How long it stood before the buzz that took it — not the gap since your
+   * own previous answer, which is what a Step carries and means nothing here.
+   * Null for a slot nobody took: it stood the full RUSH_SEC by definition.
    */
   took: number | null
   /** Seconds at which the buzz landed. Null if nobody buzzed. */
@@ -45,16 +30,9 @@ export interface Slot {
 }
 
 /**
- * Every slot of a run of `durMs`, in order, tiling it end to end.
- *
- * The fold is `rushNext` — the same one the frame loop walks and the server
- * pins — so the boundaries here are the boundaries everybody played on. It
- * terminates because RUSH_GAP_MS is positive, which puts a floor on the length
- * of a slot.
- *
- * A claim's timestamp is the winner's own clock, so it is clamped into the
- * slot it settles before being read as a duration: the wire tolerates a little
- * skew either side of a boundary, and a tooltip reading "-0.12s" would not.
+ * Every slot of a run of `durMs`, tiling it end to end. The fold is `rushNext`,
+ * terminating because RUSH_GAP_MS is positive. A claim carries the winner's own
+ * clock, so it is clamped into its slot — skew would read as "-0.12s".
  */
 export function timeline(
   seed: number,

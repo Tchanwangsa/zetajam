@@ -1,11 +1,10 @@
 <script lang="ts">
-  import { Timer } from '@lucide/svelte';
-  import type { Seat } from '../lib/players'
+  import { Timer } from '@lucide/svelte'
+  import type { Seat } from '../../lib/players'
 
   /**
-   * The live scores. Two players get the duel layout they had — one big number
-   * each side of the clock — and three or more get a wrapping row, because
-   * eight names in a two-column grid is not a scoreboard.
+   * The live scores: two players get the duel layout, three or more a
+   * wrapping row.
    */
   let {
     seats = [],
@@ -26,15 +25,15 @@
   <div class="hud num">
     <div class="side">
       <span class="val" style:color={mine?.color}>{mine?.score ?? 0}</span>
-      <span class="lbl">{mine?.you ? 'you' : (mine?.name ?? '—')}</span>
+      <span class="lbl trunc">{mine?.you ? 'you' : (mine?.name ?? '—')}</span>
     </div>
     <span class="clock"><Timer size={14} /><span bind:this={clock}>–:––</span></span>
     <div class="side right">
       {#if others[0]}
         <span class="val" style:color={others[0].color}>{others[0].score}</span>
-        <span class="lbl">{others[0].name}</span>
+        <span class="lbl trunc">{others[0].name}</span>
       {:else}
-        <span class="lbl">{solo ? 'solo' : 'waiting'}</span>
+        <span class="lbl trunc">{solo ? 'solo' : 'waiting'}</span>
       {/if}
     </div>
   </div>
@@ -45,7 +44,7 @@
       {#each seats as s (s.id)}
         <div class="chip" class:mine={s.you} style:--dot={s.color}>
           <span class="val sm" style:color={s.color}>{s.score}</span>
-          <span class="lbl">{s.you ? 'you' : s.name}</span>
+          <span class="lbl trunc">{s.you ? 'you' : s.name}</span>
         </div>
       {/each}
     </div>
@@ -86,14 +85,10 @@
   .lbl {
     font-size: 12px;
     color: var(--muted);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
     max-width: 12ch;
   }
-  /* The inner span is written to by hand from Game's rAF loop, so the icon has
-     to live beside it rather than inside it — a textContent assignment would
-     delete the svg on the first frame. */
+  /* Game's rAF loop writes the inner span by hand, so the icon lives beside it
+     rather than inside — a textContent assignment would delete the svg. */
   .clock {
     display: inline-flex;
     align-items: center;

@@ -2,9 +2,8 @@
   import type { Snippet } from 'svelte'
 
   /**
-   * A panel anchored under whatever opened it, closing on Escape or on a click
-   * outside. The backdrop is invisible and full-screen: it is the click target,
-   * not a scrim, so the page behind stays readable while the panel is open.
+   * A panel anchored under whatever opened it. The backdrop is invisible and
+   * full-screen — a click target, not a scrim, so the page stays readable.
    */
   let {
     onClose,
