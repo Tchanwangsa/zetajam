@@ -37,12 +37,12 @@ export type Range = [number, number, number, number]
  * ModeRush.
  *
  * Classic draws every question from one fixed pair of ranges — the ones in the
- * config. Ramp ignores them and walks TIERS instead, so the run opens easy and
- * ends on the classic defaults. Rush draws from the config's ranges exactly as
- * classic does and changes the rules rather than the numbers: one question
- * stands in front of everybody at once for up to RUSH_SEC, and the first
- * correct answer to reach the server takes the only point it is worth — and
- * ends the question there and then, for everybody.
+ * config. Ramp ignores them and walks its own curve instead, opening easier than
+ * anything the bar offers and climbing until it tops out at RAMP_TOP. Rush draws
+ * from the config's ranges exactly as classic does and changes the rules rather
+ * than the numbers: one question stands in front of everybody at once for up to
+ * RUSH_SEC, and the first correct answer to reach the server takes the only
+ * point it is worth — and ends the question there and then, for everybody.
  */
 export type Mode = 'classic' | 'ramp' | 'rush'
 
@@ -96,57 +96,99 @@ export function rushNext(open: number, ms: number, claimed: boolean): number {
  */
 export const rushSlots = (durSec: number) => Math.max(1, Math.ceil((durSec * 1000) / RUSH_MS))
 
-/** One rung of the ramp. Subtraction and division inherit as they always do. */
-export interface Tier {
+export const MAX_TERM = 9999
+
+/** One step of the ramp. Subtraction and division inherit as they always do. */
+export interface Level {
   add: Range
   mul: Range
 }
 
-/** Mirror of quiz.Tiers. Easiest first; the last rung is the classic default. */
-export const TIERS: readonly Tier[] = [
-  { add: [2, 20, 2, 20], mul: [2, 5, 2, 20] },
-  { add: [2, 80, 2, 80], mul: [2, 8, 2, 75] },
-  { add: [2, 100, 2, 100], mul: [2, 12, 2, 100] },
-]
+/**
+ * The ramp climbs in two acts. Mirror of quiz.RampEvery / RampWide / RampTop.
+ *
+ * Through RAMP_WIDE the ceilings rise and the numbers simply get bigger. From
+ * there to RAMP_TOP the ceilings hold and only the floors are still moving, so
+ * nothing new gets harder — the easy draws just stop turning up. That second
+ * act is what keeps the top of the ramp from running away: it tightens the
+ * band instead of raising it, which is a real increase in difficulty that
+ * costs nothing in headroom.
+ *
+ * The floors are the reason for the split. Pinned at 2, a level-20 run still
+ * deals `4 + 7` out of a 2–300 range often enough to notice, and that reads as
+ * the generator being erratic rather than as a curve. So floors climb too — on
+ * the longer of the two timelines, so the band widens through the first act
+ * before the second act closes it up.
+ */
+export const RAMP_EVERY = 2
+export const RAMP_WIDE = 20
+export const RAMP_TOP = 30
 
-/** Mirror of quiz.TierAt — question counts per minute of the run. */
-export const TIER_AT: readonly number[] = [2, 6, 12]
+/** One edge of one operand range: where it opens and where it stops. Six of
+    them are the whole ramp. Mirror of quiz.rampAddLo and friends.
+
+    Addition grows on both terms at once — 40 + 40 is the same kind of problem
+    as 4 + 4 with more carrying in it. Multiplication does not: the multiplier
+    is what makes it hard, so that side crawls, never past the times tables,
+    while the number it multiplies climbs at addition's rate. */
+const RAMP_ADD_LO: Bound = [2, 200]
+const RAMP_ADD_HI: Bound = [10, 300]
+const RAMP_MUL_LO: Bound = [2, 6]
+const RAMP_MUL_HI: Bound = [4, 15]
+const RAMP_BY_LO: Bound = [2, 30]
+const RAMP_BY_HI: Bound = [10, 150]
+
+type Bound = [from: number, to: number]
 
 /**
- * The rung question `i` falls on. Mirror of quiz.TierOf.
+ * The level question `i` falls on — 1 for the first RAMP_EVERY questions of a
+ * run, and never past RAMP_TOP. Mirror of quiz.RampLevelOf.
  *
- * Integer arithmetic on both sides of the wire, spelled out rather than left
- * to a float, because the two generators have to agree exactly.
+ * A pure function of the index alone — not of the clock. The ramp used to
+ * scale its steps to the run length so a short sprint still saw the whole of
+ * it; it no longer does, so question `i` is the same difficulty under any
+ * length and a short run simply sees the bottom of the ramp.
  */
-export function tierOf(i: number, durSec: number): number {
-  let n = 0
-  for (const at of TIER_AT) {
-    const s = Math.max(1, Math.floor((at * durSec + 30) / 60))
-    if (i >= s) n++
+export const rampLevelOf = (i: number) =>
+  i < 1 ? 1 : Math.min(RAMP_TOP, 1 + Math.floor(i / RAMP_EVERY))
+
+/**
+ * The ranges at level `n`. Mirror of quiz.RampLevel.
+ *
+ * Each bound walks a straight line from where it opens to where it stops: the
+ * ceilings over RAMP_WIDE levels, the floors over the whole RAMP_TOP. Integer
+ * arithmetic on both sides of the wire, spelled out rather than left to a
+ * float, because the two generators have to agree exactly.
+ */
+export function rampLevel(n: number): Level {
+  const lv = Math.min(RAMP_TOP, Math.max(1, Math.trunc(n)))
+  const k = lv - 1 // steps taken since the opening level
+  const c = Math.min(k, RAMP_WIDE - 1) // ceilings stop moving here
+  const at = (b: Bound, step: number, span: number) =>
+    span < 1 ? b[1] : b[0] + Math.floor(((b[1] - b[0]) * step) / span)
+  const range = (aLo: Bound, aHi: Bound, bLo: Bound, bHi: Bound): Range => {
+    const r: Range = [
+      at(aLo, k, RAMP_TOP - 1),
+      at(aHi, c, RAMP_WIDE - 1),
+      at(bLo, k, RAMP_TOP - 1),
+      at(bHi, c, RAMP_WIDE - 1),
+    ]
+    // Unreachable with the bounds above; here because they are meant to be
+    // tuned by hand, and a floor tuned past its own ceiling would otherwise
+    // reach the generator as an empty range.
+    if (r[1] < r[0]) r[1] = r[0]
+    if (r[3] < r[2]) r[3] = r[2]
+    return r
   }
-  return Math.min(n, TIERS.length - 1)
+  return {
+    add: range(RAMP_ADD_LO, RAMP_ADD_HI, RAMP_ADD_LO, RAMP_ADD_HI),
+    mul: range(RAMP_MUL_LO, RAMP_MUL_HI, RAMP_BY_LO, RAMP_BY_HI),
+  }
 }
 
-/**
- * The last question index the schedule can still move on. Everything past it
- * is on the top rung, so it is where the scan below stops.
- *
- * That scan inverts tierOf by walking it rather than by solving it. That is
- * deliberate: at a short duration two thresholds can round to the same
- * question and a rung is skipped outright — at the 10s minimum the run goes
- * from rung one to rung three on question one — and an inverted formula would
- * confidently report a rung that never appears.
- */
-const lastStep = (durSec: number) =>
-  Math.max(1, Math.floor((TIER_AT[TIER_AT.length - 1] * durSec + 30) / 60)) + 1
-
-/** The question rung `k` starts at, or null if this run never lands on it. */
-export function tierStart(k: number, durSec: number): number | null {
-  if (k <= 0) return 0
-  const end = lastStep(durSec)
-  for (let i = 1; i <= end; i++) if (tierOf(i, durSec) === k) return i
-  return null
-}
+/** The question level `n` opens on — the inverse of rampLevelOf, and what the
+    settings panel previews the ramp with. */
+export const rampStart = (n: number) => (Math.max(1, Math.trunc(n)) - 1) * RAMP_EVERY
 
 export interface Config {
   mode: Mode
@@ -156,14 +198,13 @@ export interface Config {
 }
 
 /** The range `op` draws from for question `i` — the config's own in classic and
-    in rush, the rung's in ramp. Mirror of quiz.Config.RangeFor. */
+    in rush, the level's in ramp. Mirror of quiz.Config.RangeFor. */
 export function rangeFor(c: Config, op: Op, i: number): Range {
   if (c.mode !== 'ramp') return c.ranges[op]
-  const t = TIERS[tierOf(i, c.durSec)]
-  return op === 'add' || op === 'sub' ? t.add : t.mul
+  const l = rampLevel(rampLevelOf(i))
+  return op === 'add' || op === 'sub' ? l.add : l.mul
 }
 
-export const MAX_TERM = 9999
 export const MIN_DUR = 10
 export const MAX_DUR = 600
 export const TIMES = [15, 30, 60, 120]

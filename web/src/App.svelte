@@ -171,7 +171,10 @@
           const at = m.ms ?? 0
           const q = question(match.seed, m.i, match.cfg)
           const prev = steps.length ? steps[steps.length - 1].t * 1000 : 0
-          steps = [...steps, { i: m.i, t: at / 1000, ms: at - prev, text: q.text, answer: q.answer, tier: -1 }]
+          steps = [
+            ...steps,
+            { i: m.i, t: at / 1000, ms: at - prev, text: q.text, answer: q.answer, level: -1 },
+          ]
         }
         break
       case 'end':
@@ -297,17 +300,27 @@
   // In a room the host's config is the one that counts, and during a match it
   // is whatever the server normalized — so the bar shows the config that is
   // actually in force, not the one this browser happens to have saved.
+  //
+  // The results screen counts as during the match: the run it is reporting on
+  // is the one that just ended, and a bar that snapped back to your own saved
+  // settings the moment the clock stopped would be captioning somebody else's
+  // scores with numbers nobody played under.
   const barCfg = $derived(
-    phase === 'room' && room ? room.cfg : phase === 'match' && match ? match.cfg : cfg,
+    phase === 'room' && room
+      ? room.cfg
+      : (phase === 'match' || phase === 'over') && match
+        ? match.cfg
+        : cfg,
   )
   const isHost = $derived(!!room && room.hostId === selfId)
+  const spectated = $derived((phase === 'match' || phase === 'over') && !!match?.spectating)
   const barLocked = $derived(
-    (phase === 'match' && !!match && (match.spectating || match.players.length > 1)) ||
-      (phase === 'room' && !!room && !isHost) ||
-      (phase === 'over' && !!room && !isHost),
+    (phase === 'match' && !!match && match.players.length > 1) ||
+      spectated ||
+      ((phase === 'room' || phase === 'over') && !!room && !isHost),
   )
   const barNote = $derived(
-    phase === 'match' && match?.spectating
+    spectated
       ? 'spectating — these are their settings'
       : phase === 'match' && barLocked
         ? 'locked for the rest of this run'

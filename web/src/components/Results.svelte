@@ -3,7 +3,7 @@
   import type { Sample } from '../lib/series'
   import type { Step } from '../lib/steps'
   import type { Slot } from '../lib/rush'
-  import { TIERS, type Config } from '../lib/config'
+  import type { Config } from '../lib/config'
   import { question } from '../lib/questions'
   import { seats as buildSeats } from '../lib/players'
   import Graph from './Graph.svelte'

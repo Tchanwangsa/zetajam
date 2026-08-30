@@ -6,8 +6,9 @@ that build into one static binary.
 - **Solo runs** against the clock, or **rooms** of up to eight — public and
   listed, or private behind a four-character code.
 - **Classic, ramp or rush** — fixed difficulty; a run that opens easy and
-  climbs; or one question in front of everybody at once, five seconds each,
-  first correct answer taking the point.
+  climbs a step every two questions, thirty levels of it; or one question in
+  front of everybody at once, five seconds each, first correct answer taking
+  the point.
 - Configurable operations, term ranges and length; a live graph of everybody's
   pace, with a per-question breakdown of your own.
 

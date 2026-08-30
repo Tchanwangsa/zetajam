@@ -23,8 +23,9 @@ type Range [4]int
 // The three shapes a run can take.
 //
 // Classic draws every question from one fixed pair of ranges — the ranges in
-// the config. Ramp ignores them and walks Tiers instead, so the run opens easy
-// and ends on the classic defaults. Rush draws from the config's ranges exactly
+// the config. Ramp ignores them and walks its own curve instead, opening easier
+// than anything the bar offers and climbing a step every RampEvery questions
+// until it tops out at RampTop. Rush draws from the config's ranges exactly
 // as classic does and changes the *rules* rather than the numbers: one question
 // stands in front of everybody at once, for up to RushSec, and the first
 // correct answer to reach the server takes the only point it is worth — and
@@ -102,69 +103,140 @@ func RushSlots(durSec int) int {
 	return n
 }
 
-// A Tier is one rung of the ramp: the ranges addition and multiplication draw
-// from while the run is on that rung. Subtraction and division read them
+// A Level is one step of the ramp: the ranges addition and multiplication draw
+// from while the run is on that step. Subtraction and division read them
 // backwards exactly as they do in classic, so the answer stays a clean
 // positive integer at every difficulty.
-type Tier struct {
+type Level struct {
 	Add Range
 	Mul Range
 }
 
-// Tiers is the ramp, easiest first. The last rung is deliberately the classic
-// default: ramp is a way into the standard run, not past it.
-var Tiers = [...]Tier{
-	{Add: Range{2, 20, 2, 20}, Mul: Range{2, 5, 2, 20}},
-	{Add: Range{2, 80, 2, 80}, Mul: Range{2, 8, 2, 75}},
-	{Add: Range{2, 100, 2, 100}, Mul: Range{2, 12, 2, 100}},
+// The ramp climbs in two acts, and every number in it is a level rather than a
+// question so that the meter can say where you are.
+//
+// Through RampWide the ceilings rise and the numbers simply get bigger. From
+// there to RampTop the ceilings hold and only the floors are still moving, so
+// nothing new gets harder — the easy draws just stop turning up. That second
+// act is what keeps the top of the ramp from running away: the last third of
+// the climb tightens the band instead of raising it, which is a real increase
+// in difficulty that costs nothing in headroom.
+//
+// The floors matter as much as the ceilings and are the reason for the split.
+// A floor pinned at 2 means a level-20 run still deals `4 + 7` out of a 2–300
+// range often enough to notice, and that reads as the generator being erratic
+// rather than as a curve. Floors therefore climb too — on the longer of the
+// two timelines, so the band widens through the first act before the second
+// act closes it up again.
+const (
+	RampEvery = 2  // questions per level
+	RampWide  = 20 // the level the ceilings stop rising at
+	RampTop   = 30 // the last level there is
+)
+
+// A rampBound is one edge of one operand range: where it opens and where it
+// stops. Six of them are the whole ramp.
+type rampBound struct{ from, to int }
+
+// Addition grows on both terms at once, because 40 + 40 is the same kind of
+// problem as 4 + 4 with more carrying in it. Multiplication does not: the
+// multiplier is what makes it hard, so that side crawls — 4 up to 15, never
+// past the times tables — while the number it multiplies climbs at addition's
+// rate. That is what keeps the top of the ramp a times-table being stretched
+// rather than long multiplication.
+var (
+	rampAddLo = rampBound{2, 200} // both addition terms, low
+	rampAddHi = rampBound{10, 300}
+	rampMulLo = rampBound{2, 6} // the multiplier, and the divisor it becomes
+	rampMulHi = rampBound{4, 15}
+	rampByLo  = rampBound{2, 30} // what the multiplier multiplies
+	rampByHi  = rampBound{10, 150}
+)
+
+// RampLevelOf is the level question i falls on — 1 for the first RampEvery
+// questions of a run, and never past RampTop.
+//
+// A pure function of the index alone, because the question stream has to be
+// one: the server checks answer i without replaying the questions before it,
+// and every client generates the same stream from the seed alone. Nothing here
+// may depend on how the run is actually going — or on how long it is. The ramp
+// used to scale its steps to the run length so a 15s sprint saw the whole of
+// it; it no longer does, so question i sits at the same difficulty under any
+// clock and a short run simply sees the bottom of the ramp.
+func RampLevelOf(i int) int {
+	if i < 1 {
+		return 1
+	}
+	if n := 1 + i/RampEvery; n < RampTop {
+		return n
+	}
+	return RampTop
 }
 
-// TierAt are the question counts at which the ramp steps up, expressed per
-// minute of the run so a 15s sprint ramps in the same shape as a 5-minute
-// grind rather than sitting on rung one the whole way.
+// RampLevel is the ranges at level n.
 //
-// One entry per step offered. There are three here and three rungs, so the
-// last one only starts doing anything if a fourth rung is ever added.
-var TierAt = [...]int{2, 6, 12}
+// Each bound walks a straight line from where it opens to where it stops: the
+// ceilings over RampWide levels, the floors over the whole RampTop. Integer
+// arithmetic on both sides of the wire — see the TypeScript mirror in
+// web/src/lib/config.ts — so the division has to be spelled out rather than
+// left to a float.
+func RampLevel(n int) Level {
+	if n < 1 {
+		n = 1
+	}
+	if n > RampTop {
+		n = RampTop
+	}
+	k := n - 1 // steps taken since the opening level
+	c := k
+	if c > RampWide-1 {
+		c = RampWide - 1
+	}
+	lo, hi := RampTop-1, RampWide-1
+	return Level{
+		Add: rampRange(rampAddLo, rampAddHi, rampAddLo, rampAddHi, k, c, lo, hi),
+		Mul: rampRange(rampMulLo, rampMulHi, rampByLo, rampByHi, k, c, lo, hi),
+	}
+}
 
-// TierOf is the rung question i falls on.
-//
-// A pure function of the index and the clock, because the question stream has
-// to be one: the server checks answer i without replaying the questions before
-// it, and every client generates the same stream from the seed alone. Nothing
-// here may depend on how the run is actually going.
-//
-// The arithmetic is integer on both sides of the wire — see the TypeScript
-// mirror in web/src/lib/config.ts — so the rounding has to be spelled out
-// rather than left to a float.
-func TierOf(i, durSec int) int {
-	n := 0
-	for _, at := range TierAt {
-		s := (at*durSec + 30) / 60 // per-minute count, scaled to the run, rounded
-		if s < 1 {
-			s = 1
-		}
-		if i >= s {
-			n++
-		}
+// rampRange is the four bounds of one operation at a given point on the two
+// timelines: floors at k of lo steps, ceilings at c of hi steps.
+func rampRange(aLo, aHi, bLo, bHi rampBound, k, c, lo, hi int) Range {
+	r := Range{
+		rampAt(aLo, k, lo), rampAt(aHi, c, hi),
+		rampAt(bLo, k, lo), rampAt(bHi, c, hi),
 	}
-	if n > len(Tiers)-1 {
-		n = len(Tiers) - 1
+	// Every bound above is set so that this cannot fire. It is here because
+	// the six of them are meant to be tuned by hand, and a floor tuned past
+	// its own ceiling would otherwise reach the generator as an empty range.
+	if r[1] < r[0] {
+		r[1] = r[0]
 	}
-	return n
+	if r[3] < r[2] {
+		r[3] = r[2]
+	}
+	return r
+}
+
+// rampAt is bound b, k steps of span into its climb.
+func rampAt(b rampBound, k, span int) int {
+	if span < 1 {
+		return b.to
+	}
+	return b.from + ((b.to-b.from)*k)/span
 }
 
 // RangeFor is the range operation op draws from for question i — the config's
-// own in classic and in rush, the rung's in ramp.
+// own in classic and in rush, the level's in ramp.
 func (c Config) RangeFor(op string, i int) Range {
 	if c.Mode != ModeRamp {
 		return c.Ranges[op]
 	}
-	t := Tiers[TierOf(i, c.DurSec)]
+	l := RampLevel(RampLevelOf(i))
 	if op == "add" || op == "sub" {
-		return t.Add
+		return l.Add
 	}
-	return t.Mul
+	return l.Mul
 }
 
 // Config is the whole of what a player can configure: which operations appear,

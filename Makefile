@@ -58,8 +58,10 @@ run: build
 ## deliberately sets only add and mul: sub and div inherit those ranges in
 ## Normalize, and this proves both mirrors inherit them identically.
 CFG := {"ops":["sub","div"],"ranges":{"add":[5,900,1,60],"mul":[3,17,7,250]}}
-## The ramp case runs at a length the tier thresholds do not divide evenly, so
-## the per-minute scaling has to round identically on both sides or it diverges.
+## The ramp case ignores the ranges it is given and walks its own curve instead,
+## which is exactly what has to match: 500 questions covers every one of its
+## levels and the flat top past them, and a single step off on either side
+## diverges and stays diverged.
 RAMP := {"mode":"ramp","durSec":45,"ranges":{"add":[5,900,1,60],"mul":[3,17,7,250]}}
 ## Rush changes the rules, not the numbers: it draws from the config's own
 ## ranges exactly as classic does, so its stream has to come out identical to a

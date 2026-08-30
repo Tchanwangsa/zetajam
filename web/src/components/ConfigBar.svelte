@@ -7,7 +7,9 @@
     OP_NAME,
     MODES,
     RUSH_SEC,
-    TIERS,
+    RAMP_EVERY,
+    RAMP_WIDE,
+    RAMP_TOP,
     TIMES,
     rushSlots,
     MAX_TERM,
@@ -16,7 +18,8 @@
     defaults,
     normalize,
     isDefault,
-    tierStart,
+    rampLevel,
+    rampStart,
     type Config,
     type Mode,
     type Op,
@@ -56,7 +59,7 @@
   const MODE_ICON = { classic: Brain, ramp: TrendingUp, rush: Zap }
   const MODE_HINT: Record<Mode, string> = {
     classic: 'one difficulty the whole way',
-    ramp: 'starts easy, steps up as the run goes on',
+    ramp: `opens easy and steps up every ${RAMP_EVERY} questions, ${RAMP_TOP} levels of it`,
     rush: `one question for everybody — first correct answer takes the point and moves the room on`,
   }
 
@@ -106,12 +109,13 @@
   const ramp = $derived(cfg.mode === 'ramp')
   const rush = $derived(cfg.mode === 'rush')
 
-  // The panel lists the rungs alongside the question each one starts at, which
-  // is the only place the per-minute scaling is visible: at 15s the ramp is
-  // over in three questions, at five minutes it takes fifty. At the very
-  // shortest lengths two thresholds round to the same question and a rung is
-  // skipped outright, which is why `from` is allowed to be null.
-  const rungs = $derived(TIERS.map((t, k) => ({ ...t, from: tierStart(k, cfg.durSec) })))
+  // Thirty levels is too many to print, so the panel prints readings off the
+  // curve instead — the opening, a couple on the way up, the level the ceilings
+  // stop at, and the top. These are levels, not run length: the ramp no longer
+  // scales itself to the clock, so q19 is the same question whether you set 15
+  // seconds or ten minutes.
+  const PREVIEW = [1, 5, 10, RAMP_WIDE, RAMP_TOP]
+  const rungs = PREVIEW.map((n) => ({ ...rampLevel(n), n, from: rampStart(n) }))
 </script>
 
 <div class="wrap">
@@ -236,8 +240,8 @@
             </label>
 
             {#if ramp}
-              <!-- Ranges are the rungs' in a ramp run, so there is nothing here
-                   to type into — see the tier table below. -->
+              <!-- A ramp run draws off its own line rather than these, so
+                   there is nothing here to type into — see the table below. -->
             {:else if FORWARD.includes(op)}
               <div class="range num">
                 <span class="lead">Range:</span>
@@ -309,10 +313,10 @@
 
       {#if ramp}
         <div class="tiers num">
-          <div class="micro head">the ramp — at {cfg.durSec}s</div>
-          {#each rungs as t, k (k)}
+          <div class="micro head">the ramp — a step every {RAMP_EVERY} questions</div>
+          {#each rungs as t (t.n)}
             <div class="tier">
-              <span class="at">{t.from === null ? 'skipped' : `from q${t.from}`}</span>
+              <span class="at">lvl {t.n} · q{t.from + 1}</span>
               <span class="spec">
                 {t.add[0]}–{t.add[1]} + {t.add[2]}–{t.add[3]}
                 <span class="dot">·</span>
@@ -498,7 +502,9 @@
   }
   .at {
     flex: none;
-    width: 62px;
+    /* Wide enough for the longest label the ramp preview prints — the level
+       and the question it opens on, both of which grow a digit. */
+    width: 84px;
     color: var(--faint);
   }
   .spec {
@@ -508,7 +514,6 @@
     color: var(--faint);
     padding: 0 4px;
   }
-
   .foot {
     display: flex;
     align-items: center;

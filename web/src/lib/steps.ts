@@ -19,8 +19,8 @@ export interface Step {
   ms: number
   text: string
   answer: number
-  /** The rung it was drawn from, or -1 in a classic run. */
-  tier: number
+  /** The ramp level it was drawn from, or -1 outside a ramp run. */
+  level: number
 }
 
 /** A per-question duration, at the precision that reads as a time rather than a measurement. */

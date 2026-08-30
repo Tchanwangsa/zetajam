@@ -1,6 +1,6 @@
 <script lang="ts">
   import { question, type Question } from '../lib/questions'
-  import { rushNext, tierOf, type Config } from '../lib/config'
+  import { rampLevelOf, rushNext, type Config } from '../lib/config'
   import type { Sample } from '../lib/series'
   import type { Step } from '../lib/steps'
   import type { Claim, PlayerInfo } from '../lib/net'
@@ -8,7 +8,7 @@
   import { seats as buildSeats } from '../lib/players'
   import Graph from './Graph.svelte'
   import Scoreboard from './Scoreboard.svelte'
-  import TierMeter from './TierMeter.svelte'
+  import RampMeter from './RampMeter.svelte'
 
   let {
     seed,
@@ -54,10 +54,12 @@
   let score = $state(0)
   let phase = $state<'count' | 'live' | 'done'>('count')
 
-  // The rung the next question comes off. Plain state rather than one of the
-  // hand-written nodes below, because it changes twice in a whole run — the
-  // hot path is for things that move on a keystroke.
-  let tier = $state(0)
+  // The index of the question on screen, for the ramp meter — which needs the
+  // index rather than the level, because how far into a level you are is half
+  // of what it shows. Kept as its own state instead of making `idx` reactive:
+  // `idx` is read on every frame of the rush bar, and this is written once per
+  // answer and only in a ramp run.
+  let rampAt = $state(0)
   const ramp = $derived(cfg.mode === 'ramp' && !spectating)
 
   // --- rush ----------------------------------------------------------------
@@ -119,7 +121,7 @@
     lastAt = 0
     samples = [{ t: 0, s: players.map(() => 0) }]
     steps = []
-    tier = 0
+    rampAt = 0
     slot = 0
     slotOpen = 0
     buzzed = false
@@ -280,7 +282,7 @@
         ms: at - lastAt,
         text: cur.text,
         answer: cur.answer,
-        tier: cfg.mode === 'ramp' ? tierOf(idx, cfg.durSec) : -1,
+        level: cfg.mode === 'ramp' ? rampLevelOf(idx) : -1,
       },
     ]
     lastAt = at
@@ -289,10 +291,7 @@
     cur = question(seed, idx, cfg)
     qEl.textContent = cur.text
     inputEl.value = ''
-    if (cfg.mode === 'ramp') {
-      const t = tierOf(idx, cfg.durSec)
-      if (t !== tier) tier = t
-    }
+    if (cfg.mode === 'ramp') rampAt = idx
   }
 </script>
 
@@ -302,7 +301,7 @@
   <Scoreboard seats={seatList} bind:clock={timerEl} solo={players.length === 1} />
 
   {#if ramp}
-    <TierMeter {tier} />
+    <RampMeter i={rampAt} />
   {/if}
 
   {#if spectating}

@@ -23,7 +23,7 @@ type Question struct {
 // multiplication, so the answer is always a clean positive integer.
 //
 // Which range the operands come off is the one thing that is not fixed: in a
-// ramp run it is the rung index i falls on rather than the config's own. The
+// ramp run it is the level index i falls on rather than the config's own. The
 // draw itself is untouched by that, so a ramp stream and a classic stream from
 // the same seed take the same number of intn calls per question.
 func At(seed uint32, i int, c Config) Question {
