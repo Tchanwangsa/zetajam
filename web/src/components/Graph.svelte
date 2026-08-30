@@ -1,23 +1,27 @@
 <script lang="ts">
-  import { ceilMax, linePath, peakOf, ticks, type Sample } from '../lib/series'
+  import { ceilMax, linePath, peakOf, stepPoints, ticks, type Sample } from '../lib/series'
   import { fmtAt, fmtTook, type Step } from '../lib/steps'
   import type { Seat } from '../lib/players'
 
   /**
    * Cumulative answers over the run, one line per player.
    *
-   * It plots the number on the scoreboard rather than a rate derived from it,
-   * which is what lets the lines be drawn straight: a running total is
-   * monotonic, so there is no wobble to smooth away and every kink in the line
-   * is a real thing that happened. Hand-rolled SVG — for a couple of hundred
-   * points a charting library is 60KB you do not need.
+   * It plots the number on the scoreboard rather than a rate derived from it:
+   * a running total is monotonic, so there is no wobble to smooth away and
+   * every riser in the line is a real thing that happened. Hand-rolled SVG —
+   * for a couple of hundred points a charting library is 60KB you do not need.
    *
-   * Your line and everybody else's are built from different data, on purpose.
-   * Theirs can only come from the 1Hz samples, because their answers reach this
-   * browser as a score and nothing more; yours is drawn from the answer log, at
-   * the exact instant each answer landed. That is what makes your line real
-   * enough to hang a tooltip off: every step in it is one question, and the
-   * tooltip says which one it was and how long it took.
+   * Every line is stairs, because every line counts whole answers. What
+   * differs is where the risers can land. Yours comes from the answer log, so
+   * a riser sits at the instant that answer landed; everybody else's can only
+   * come from the 1Hz samples, because their answers reach this browser as a
+   * score and nothing more, so their risers land on the second we read the
+   * score on. Coarser, but honest — sloping between two readings would draw
+   * them answering in fractions.
+   *
+   * That precision is also what makes your line real enough to hang a tooltip
+   * off: every step in it is one question, and the tooltip says which one it
+   * was and how long it took.
    *
    * Hovering works off the whole line rather than off the risers, because a
    * riser can be two pixels wide. What the cursor picks is a question, and a
@@ -133,7 +137,7 @@
       d:
         mine && i === you
           ? linePath(stairs)
-          : linePath(samples.map((s) => [x(s.t), y(s.s[i] ?? 0)])),
+          : linePath(stepPoints(samples.map((s) => [x(s.t), y(s.s[i] ?? 0)]))),
     })),
   )
   // Your line goes on last so it is never buried under somebody else's.
@@ -270,7 +274,7 @@
       <div class="q">{tip.text}<span class="eq">= {tip.answer}</span></div>
       <div class="row">
         <span class="took">{fmtTook(tip.ms)}</span>
-        <span class="meta">#{tip.n} · {tip.at === null ? 'unanswered' : `at ${fmtAt(tip.at)}`}</span>
+        <span class="meta">#{tip.n} · {tip.at && `at ${fmtAt(tip.at)}`}</span>
       </div>
     </div>
   {/if}

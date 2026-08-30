@@ -12,6 +12,7 @@
   import type { Step } from './lib/steps'
   import { load, save, sig, type Config } from './lib/config'
   import { codeFromURL, setURL, validCode } from './lib/room'
+  import Hints from './components/Hints.svelte'
   import Lobby from './components/Lobby.svelte'
   import Multiplayer from './components/Multiplayer.svelte'
   import Room from './components/Room.svelte'
@@ -76,6 +77,12 @@
   // and then reloading — or following a room link instead — lost it.
   $effect(() => localStorage.setItem('zetajam.name', name))
 
+  // The pointers at the settings bar are for people who have never seen it.
+  // Once you have started a run you have found the bar or decided you do not
+  // care, and either way an arrow pointing at it every time you come back to
+  // the lobby is nagging.
+  let hinted = $state(localStorage.getItem('zetajam.hinted') === '1')
+
   let theme = $state(localStorage.getItem('zetajam.theme') ?? 'system')
   $effect(() => {
     if (theme === 'system') document.documentElement.removeAttribute('data-theme')
@@ -114,6 +121,8 @@
         rooms = m.rooms ?? []
         break
       case 'match':
+        hinted = true
+        localStorage.setItem('zetajam.hinted', '1')
         match = {
           seed: m.seed,
           cfg: m.cfg,
@@ -365,6 +374,10 @@
   <div class="bar">
     <ConfigBar cfg={barCfg} onChange={onCfg} disabled={barLocked} note={barNote} />
   </div>
+
+  {#if phase === 'lobby' && !hinted}
+    <Hints />
+  {/if}
 
   <main>
     {#if phase === 'lobby'}

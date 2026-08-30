@@ -10,8 +10,9 @@
  *     redrew on every opponent keystroke, so the line danced to their typing.
  *  2. Fixed x domain (0..duration). It cannot rescale because it never grows.
  *
- * The curve is drawn straight, point to point. A rate needed smoothing to read
- * as a trend; a step count does not — the steps are the information.
+ * The curve is drawn as stairs, never point to point. A rate needed smoothing
+ * to read as a trend; a step count does not — the steps are the information,
+ * and a diagonal between two readings would draw answers arriving in fractions.
  */
 
 export interface Sample {
@@ -55,6 +56,22 @@ export function ticks(max: number): number[] {
   const step = niceStep(max)
   const out: number[] = []
   for (let v = 0; v <= max + 1e-9; v += step) out.push(v)
+  return out
+}
+
+/**
+ * Hold each reading until the next one, then jump: the stair shape a
+ * cumulative count actually has. A sampled series only knows what the score
+ * was at each reading, so the value in between is the earlier one — sloping
+ * across the gap invents a climb that never happened.
+ */
+export function stepPoints(pts: Array<[number, number]>): Array<[number, number]> {
+  const out: Array<[number, number]> = []
+  for (const [px, py] of pts) {
+    const prev = out[out.length - 1]
+    if (prev && prev[1] !== py) out.push([px, prev[1]])
+    out.push([px, py])
+  }
   return out
 }
 

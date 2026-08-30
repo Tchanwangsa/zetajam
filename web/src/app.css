@@ -19,6 +19,11 @@
   --danger: #c0483f;
   --radius: 10px;
 
+  /* The one place the app is allowed to look handwritten: the pointers on the
+     lobby that say where the settings are. Nothing load-bearing is set in it,
+     so a missing webfont costs nothing. */
+  --hand: 'Caveat', 'Bradley Hand', 'Segoe Print', cursive;
+
   /* Opponent line colours, handed out in roster order. You are always the
      accent, so these start at whoever is not you. */
   --p1: #5f6c7d;
