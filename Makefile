@@ -112,7 +112,20 @@ check: parity web
 ## lives in web/src/lib/client.svelte.ts: a hidden tab puts its socket down,
 ## because an instance cannot reach zero while one is still held open.
 ##
+## A rollout has no headroom. --max-instances 1 means the outgoing revision and
+## the incoming one both want the only slot, so every deploy has a window where
+## requests come back 429 "no available instance" — and deploying repeatedly to
+## chase that 429 extends it rather than clearing it. On 2026-08-31 five
+## revisions in twenty-five minutes kept the service down for the whole of it,
+## with a healthy instance running at concurrency 1 the entire time; it cleared
+## on its own. Deploy once, then wait a few minutes before believing the first
+## 429 you see.
+##
 ## Websockets need the timeout raised from the 5-minute default.
+##
+## MIN and MAX are overridable for that: MIN=1 pins the service warm again,
+## which is worth doing while something else is being diagnosed. Raising MAX is
+## not — see the first paragraph.
 ##
 ## IMAGE is how CI hands in an image it built and pushed itself. Without it
 ## this still deploys --source, which is what you want by hand: no registry to
@@ -120,14 +133,16 @@ check: parity web
 ## either way, which is the whole point of deploying through make.
 SERVICE ?= zetajam
 REGION  ?= australia-southeast1
+MIN     ?= 0
+MAX     ?= 1
 
 deploy:
 	gcloud run deploy $(SERVICE) \
 		$(if $(IMAGE),--image $(IMAGE),--source .) \
 		--region $(REGION) \
 		--allow-unauthenticated \
-		--min-instances 0 \
-		--max-instances 1 \
+		--min-instances $(MIN) \
+		--max-instances $(MAX) \
 		--timeout 3600 \
 		--session-affinity \
 		$(if $(ORIGINS),--set-env-vars ORIGINS=$(ORIGINS),)
