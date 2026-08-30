@@ -1,4 +1,32 @@
-# zetajam
+<div align="center">
+
+<a href="https://zetajam.vercel.app">
+  <img src="web/public/og.png" alt="zetajam — mental arithmetic duels with friends" width="640">
+</a>
+
+<p>
+  <a href="https://zetajam.vercel.app"><strong>Play&nbsp;»</strong></a>
+  &nbsp;·&nbsp;
+  <a href="#how-it-works"><strong>How it works</strong></a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/Tchanwangsa/zetajam/issues/new"><strong>Report a bug</strong></a>
+</p>
+
+<p>
+  <a href="https://github.com/Tchanwangsa/zetajam/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/Tchanwangsa/zetajam/ci.yml?branch=master&style=for-the-badge&label=ci&logo=githubactions&logoColor=white"></a>&nbsp;
+  <a href="https://go.dev/"><img alt="Go" src="https://img.shields.io/badge/go-00ADD8?style=for-the-badge&logo=go&logoColor=white"></a>&nbsp;
+  <a href="https://svelte.dev/"><img alt="Svelte" src="https://img.shields.io/badge/svelte-FF3E00?style=for-the-badge&logo=svelte&logoColor=white"></a>&nbsp;
+  <a href="https://www.typescriptlang.org/"><img alt="TypeScript" src="https://img.shields.io/badge/typescript-3178C6?style=for-the-badge&logo=typescript&logoColor=white"></a>&nbsp;
+  <a href="https://vite.dev/"><img alt="Vite" src="https://img.shields.io/badge/vite-646CFF?style=for-the-badge&logo=vite&logoColor=white"></a>&nbsp;
+  <a href="https://github.com/gorilla/websocket"><img alt="WebSockets" src="https://img.shields.io/badge/websockets-1F2937?style=for-the-badge&logoColor=white"></a>&nbsp;
+  <a href="https://www.docker.com/"><img alt="Docker" src="https://img.shields.io/badge/docker-2496ED?style=for-the-badge&logo=docker&logoColor=white"></a>&nbsp;
+  <a href="https://cloud.google.com/run"><img alt="Cloud Run" src="https://img.shields.io/badge/cloud%20run-4285F4?style=for-the-badge&logo=googlecloud&logoColor=white"></a>&nbsp;
+  <a href="https://vercel.com/"><img alt="Vercel" src="https://img.shields.io/badge/vercel-000000?style=for-the-badge&logo=vercel&logoColor=white"></a>
+</p>
+
+</div>
+
+## About
 
 Mental arithmetic, head to head. A Go websocket server and a Svelte frontend
 that build into one static binary.
