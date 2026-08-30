@@ -1,0 +1,169 @@
+# A deploy on its own, with no push behind it.
+#
+# ci.yml deploys both halves, but only ever as the tail of a push to master —
+# every deploy job there is gated on `github.event_name == 'push'`. That gate is
+# right for what it guards and wrong for the case that keeps coming up: the
+# commit is fine and already shipped, and what changed is outside the tree
+# entirely — a repository variable, a secret, an ORIGINS value, a Cloud Run
+# setting. Re-running the ci run works when there is a push run to re-run, but
+# a manual ci run only ever runs `check` and skips both deploys, which looks
+# exactly like a deploy that ran and did nothing.
+#
+# So: this file is the button. It deploys the ref it is dispatched on, and it
+# runs nothing else.
+name: deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      half:
+        description: 'which half to deploy'
+        type: choice
+        default: both
+        options: [both, server, page]
+        required: true
+
+# Shared with ci.yml deliberately — the same group name, so a manual deploy and
+# a push's deploy queue behind one another instead of racing for the same Cloud
+# Run revision and the same Vercel production alias. Never cancel: cancelling
+# mid-deploy leaves Cloud Run half-rolled.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '22'
+  PNPM_VERSION: '10'
+
+jobs:
+  cloud-run:
+    name: deploy server (cloud run)
+    if: inputs.half != 'page'
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write # workload identity federation mints its token from this
+    steps:
+      - uses: actions/checkout@v4
+
+      # Two ways in, whichever secret you populated. Prefer the first —
+      # federation means no long-lived key sitting in GitHub.
+      #   GCP_WORKLOAD_IDENTITY_PROVIDER + GCP_SERVICE_ACCOUNT
+      #   GCP_SA_KEY  (a service account JSON key)
+      - uses: google-github-actions/auth@v2
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      # `make deploy` owns the flags, not this file — see the same step in
+      # ci.yml for why duplicating them is how they fall out of sync.
+      - name: deploy
+        env:
+          CLOUDSDK_CORE_PROJECT: ${{ vars.GCP_PROJECT_ID }}
+          CLOUDSDK_CORE_DISABLE_PROMPTS: '1'
+        run: |
+          make deploy \
+            SERVICE='${{ vars.GCP_SERVICE || 'zetajam' }}' \
+            REGION='${{ vars.GCP_REGION || 'australia-southeast1' }}' \
+            ORIGINS='${{ vars.ORIGINS }}'
+
+      # /health, not /healthz — Google's edge answers that path itself on
+      # *.run.app and a live service would look dead.
+      - name: smoke test
+        env:
+          CLOUDSDK_CORE_PROJECT: ${{ vars.GCP_PROJECT_ID }}
+        run: |
+          url=$(gcloud run services describe '${{ vars.GCP_SERVICE || 'zetajam' }}' \
+            --region '${{ vars.GCP_REGION || 'australia-southeast1' }}' \
+            --format='value(status.url)')
+          echo "service: $url"
+          curl -fsS --retry 5 --retry-delay 3 --retry-all-errors "$url/health"
+          echo "- server: $url" >> "$GITHUB_STEP_SUMMARY"
+
+  vercel:
+    name: deploy page (vercel)
+    # After the server, not beside it: the page talks a wire protocol the
+    # server defines, so the old page against the new server is survivable and
+    # the new page against the old server is not. `skipped` is allowed through
+    # because that is what a page-only dispatch looks like from here; a
+    # cloud-run that actually failed still stops the page.
+    needs: cloud-run
+    if: |
+      !cancelled() && inputs.half != 'server'
+      && (needs.cloud-run.result == 'success' || needs.cloud-run.result == 'skipped')
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      # `vercel build` runs the install itself, and it picks the package
+      # manager from the lockfile it finds — pnpm-lock.yaml here, which is not
+      # on the runner unless we put it there. Without this the build dies on
+      # `spawn pnpm ENOENT` after a pull that worked perfectly.
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - run: npm install -g vercel@latest
+
+      # VITE_WS_URL is compile-time: whatever it says gets frozen into the
+      # bundle, and a wrong value is invisible until a browser tries to open a
+      # socket against it. It has already shipped as a hostname with a typo on
+      # the end, which failed in exactly that silent way. So it gets read once,
+      # here, and has to answer /health before anything is built on top of it.
+      - name: verify the hub url before baking it in
+        env:
+          WS_URL: ${{ vars.VITE_WS_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${WS_URL:-}" ]; then
+            echo "VITE_WS_URL is unset — the page will fall back to its own"
+            echo "Vercel origin, where there is no hub. Set the repository"
+            echo "variable VITE_WS_URL to the Cloud Run origin."
+            exit 1
+          fi
+          case "$WS_URL" in
+            http://*|https://*|ws://*|wss://*) ;;
+            *) echo "VITE_WS_URL is not a url: $WS_URL"; exit 1 ;;
+          esac
+          # The health probe wants http(s), whatever scheme the variable is in.
+          probe="$(printf '%s' "${WS_URL%/}" | sed -e 's|^ws://|http://|' -e 's|^wss://|https://|')"
+          echo "hub: $WS_URL"
+          curl -fsS --retry 3 --retry-delay 3 --retry-all-errors "$probe/health"
+          echo "- hub: $WS_URL" >> "$GITHUB_STEP_SUMMARY"
+
+      # Run from web/, which is what `vercel link` was pointed at — the .vercel
+      # directory lives there and the project's root is that directory, not the
+      # repo root. If you ever set a Root Directory of "web" in the project
+      # settings, this has to move up a level to match.
+      - name: deploy
+        working-directory: web
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          WS_URL: ${{ vars.VITE_WS_URL }}
+          NEXT_TELEMETRY_DISABLED: '1'
+        run: |
+          set -euo pipefail
+          export VITE_WS_URL="${WS_URL}"
+          vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+          vercel build --prod --token="$VERCEL_TOKEN"
+          # What actually landed in the bundle, rather than what we meant to
+          # put there. `vercel pull` writes its own .env.production.local, and
+          # the value it writes for a sensitive variable is empty — so the
+          # export above is load-bearing, and this is the proof it held.
+          echo "baked into the bundle:"
+          grep -rohE '\b(wss?|https?)://[^"'"'"'`]*/ws\b' .vercel/output/static 2>/dev/null | sort -u | tee -a "$GITHUB_STEP_SUMMARY" || true
+          url=$(vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN")
+          echo "page: $url"
+          echo "- page: $url" >> "$GITHUB_STEP_SUMMARY"
