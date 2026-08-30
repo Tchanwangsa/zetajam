@@ -123,6 +123,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # `vercel build` runs the install itself, and it picks the package
+      # manager from the lockfile it finds — pnpm-lock.yaml here, which is not
+      # on the runner unless we put it there. Without this the build dies on
+      # `spawn pnpm ENOENT` after a pull that worked perfectly.
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
