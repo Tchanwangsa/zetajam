@@ -61,8 +61,11 @@ export const RUSH_MS = RUSH_SEC * 1000
 
 /** Mirror of quiz.RushGapMs. The beat between a slot being taken and the next
     one opening — long enough that the winner's own screen does not swap the
-    equation out mid-keystroke, and short enough to still read as "next". */
-export const RUSH_GAP_MS = 500
+    equation out mid-keystroke, and shorter than the eye needs to read a name,
+    because the verdict line carries into the next slot rather than going with
+    this one. Must stay positive: it is the floor on how long a slot lasts, and
+    what makes the fold below terminate. */
+export const RUSH_GAP_MS = 300
 
 /**
  * The millisecond at which the slot after the one that opened at `open`

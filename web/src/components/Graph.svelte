@@ -1,6 +1,7 @@
 <script lang="ts">
   import { ceilMax, linePath, peakOf, stepPoints, ticks, type Sample } from '../lib/series'
   import { fmtAt, fmtTook, type Step } from '../lib/steps'
+  import type { Slot } from '../lib/rush'
   import type { Seat } from '../lib/players'
 
   /**
@@ -36,6 +37,15 @@
    * as a question like any other, but only once the run is over — hovering it
    * mid-run would hand you the answer to the one on your screen.
    *
+   * Rush is hovered by slot instead, because in rush your own answers are a
+   * poor description of the run: most of its questions went to somebody else
+   * or to nobody, and hovering the log of your wins would skip straight over
+   * them. So when `slots` is supplied the cursor walks *those* — every
+   * question the run held, in the window it actually stood in — and what
+   * lights up is that window, plus whatever your own line did across it. The
+   * treads stop being the unit of hovering because in rush they are not one
+   * question each.
+   *
    * The rungs are deliberately not drawn as bands or gridlines across the plot.
    * A rung is a property of the question index, so where it lands on a time
    * axis is a different place for every player in the run; one set of marks
@@ -48,6 +58,7 @@
     dim = false,
     steps = [],
     pending = null,
+    slots = [],
   }: {
     samples?: Sample[]
     durSec?: number
@@ -61,6 +72,12 @@
      * during a live run: it is the one still on your screen.
      */
     pending?: { text: string; answer: number } | null
+    /**
+     * Rush only: every question of the run, whoever took it. Non-empty is what
+     * puts this graph in rush mode. Withheld to the live slot during a run,
+     * for the same reason `pending` is: it is the one on your screen.
+     */
+    slots?: Slot[]
   } = $props()
 
   const H = 190
@@ -91,13 +108,16 @@
     return () => ro.disconnect()
   })
 
+  const rush = $derived(slots.length > 0)
+
   // A pin is an index into a list that a live run keeps appending to. It cannot
   // point past the end, but a new run replaces the list wholesale, so drop it
   // whenever the run behind it changes.
   $effect(() => {
     void durSec
     void steps.length
-    if (pin && pin.k >= steps.length + (pending ? 1 : 0)) pin = null
+    const n = rush ? slots.length : steps.length + (pending ? 1 : 0)
+    if (pin && pin.k >= n) pin = null
   })
 
   // The peak has to consider your answers as well as the samples. Your line is
@@ -131,6 +151,24 @@
   const mine = $derived(you >= 0 && steps.length > 0)
   const myColor = $derived(seats[you]?.color ?? 'var(--accent)')
 
+  /**
+   * Rush: what your score was as each slot opened, so a highlight drawn across
+   * a slot rides your own line rather than floating over it. Counted from the
+   * slots themselves rather than from `steps`, so it holds up while spectating
+   * — where there is no line of yours and every level is zero.
+   */
+  const levels = $derived.by(() => {
+    const id = seats[you]?.id
+    const out: number[] = []
+    let n = 0
+    for (const s of slots) {
+      out.push(n)
+      if (id && s.by === id) n++
+    }
+    return out
+  })
+  const seatOf = $derived((id: string | null) => (id ? seats.find((s) => s.id === id) : undefined))
+
   const paths = $derived(
     seats.map((seat, i) => ({
       seat,
@@ -154,6 +192,18 @@
    */
   function spotAt(px: number): Spot | null {
     const t = ((px - PAD.l) / (w - PAD.l - PAD.r)) * durSec
+    if (rush) {
+      // The slots tile the run end to end, so every point on the axis is one
+      // of them: the last one that had opened by `t`.
+      let lo = 0
+      let hi = slots.length - 1
+      while (lo < hi) {
+        const mid = (lo + hi + 1) >> 1
+        if (slots[mid].from <= t) lo = mid
+        else hi = mid - 1
+      }
+      return { k: lo, px }
+    }
     let lo = 0
     let hi = steps.length
     while (lo < hi) {
@@ -172,12 +222,50 @@
   const seg = $derived.by(() => {
     if (!active) return null
     const k = active.k
+    if (rush) {
+      // A rush slot is a window of the clock, not a tread: it is the same
+      // width whoever took it. What your line did across it is the flat run at
+      // the score you were on — with the riser in the middle of it if the one
+      // who took it was you.
+      const s = slots[k]
+      if (!s) return null
+      const x0 = x(s.from)
+      const x1 = Math.max(x0, x(s.to))
+      const lvl = y(levels[k])
+      const won = s.at !== null && !!seats[you] && s.by === seats[you].id
+      return {
+        d: won
+          ? `M${x0},${lvl}H${x(s.at!)}V${y(levels[k] + 1)}H${x1}`
+          : `M${x0},${lvl}H${x1}`,
+        x0,
+        x1,
+        lvl,
+      }
+    }
     const s = steps[k]
     if (!s && !pending) return null
     const x0 = x(k > 0 ? steps[k - 1].t : 0)
     const x1 = Math.max(x0, s ? x(s.t) : x(endT))
     const lvl = y(k)
     return { d: s ? `M${x0},${lvl}H${x1}V${y(k + 1)}` : `M${x0},${lvl}H${x1}`, x0, x1, lvl }
+  })
+
+  /**
+   * Rush only: the slot's window, drawn the full height of the plot.
+   *
+   * A tread carries its own meaning in every other mode — its width is the
+   * time that answer took — so lighting up the line is enough. A rush slot's
+   * meaning is the window itself, five seconds of it or the fraction somebody
+   * left of it, and that is a shape the line cannot show: the line is flat
+   * across most of them. It is tinted by whoever took it, so scrubbing the run
+   * reads as a run of colours rather than a list of times.
+   */
+  const band = $derived.by(() => {
+    if (!rush || !active) return null
+    const s = slots[active.k]
+    if (!s) return null
+    const seat = seatOf(s.by)
+    return { x: x(s.from), w: Math.max(1, x(s.to) - x(s.from)), fill: seat?.color ?? 'var(--muted)' }
   })
 
   // The dot rides the tread under the cursor rather than sitting on the riser,
@@ -188,12 +276,30 @@
 
   const tip = $derived.by(() => {
     if (!active || !seg) return null
-    const s = steps[active.k]
-    if (!s && !pending) return null
     // Follows the cursor along the step, clamped so a tooltip near either end
     // of the run does not hang off the edge of a full-width graph.
     const px = Math.min(Math.max(dot?.cx ?? seg.x0, 92), w - 92)
-    const base = { px, py: seg.lvl, n: active.k + 1 }
+    if (rush) {
+      const s = slots[active.k]
+      if (!s) return null
+      const seat = seatOf(s.by)
+      return {
+        px,
+        py: seg.lvl,
+        n: s.i + 1,
+        text: s.text,
+        answer: s.answer,
+        // Null for a slot nobody took: it stood the full five seconds by
+        // definition, so the number would say nothing the word does not.
+        ms: s.took === null ? null : s.took * 1000,
+        at: s.from,
+        who: seat ? (seat.you ? 'you' : seat.name) : null,
+        color: seat?.color ?? null,
+      }
+    }
+    const s = steps[active.k]
+    if (!s && !pending) return null
+    const base = { px, py: seg.lvl, n: active.k + 1, who: null, color: null }
     return s
       ? { ...base, text: s.text, answer: s.answer, ms: s.ms, at: s.t }
       : {
@@ -245,6 +351,17 @@
       {/each}
     {/if}
 
+    {#if band}
+      <rect
+        class="band"
+        x={band.x}
+        y={PAD.t}
+        width={band.w}
+        height={Math.max(0, H - PAD.b - PAD.t)}
+        style:fill={band.fill}
+      />
+    {/if}
+
     {#if seg}
       <path class="seg glow" d={seg.d} style:stroke={myColor} />
       <path class="seg" d={seg.d} style:stroke={myColor} />
@@ -254,7 +371,7 @@
       <circle class="dot" cx={dot.cx} cy={dot.cy} r={pin ? 4.5 : 3.5} />
     {/if}
 
-    {#if mine}
+    {#if mine || rush}
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <rect
@@ -273,8 +390,13 @@
     <div class="tip surface num" style:left="{tip.px}px" style:top="{tip.py}px">
       <div class="q">{tip.text}<span class="eq">= {tip.answer}</span></div>
       <div class="row">
-        <span class="took">{fmtTook(tip.ms)}</span>
-        <span class="meta">#{tip.n} · {tip.at && `at ${fmtAt(tip.at)}`}</span>
+        {#if tip.ms !== null}<span class="took">{fmtTook(tip.ms)}</span>{/if}
+        {#if tip.who}
+          <span class="by" style:color={tip.color}>{tip.who}</span>
+        {:else if rush}
+          <span class="none">nobody</span>
+        {/if}
+        <span class="meta">#{tip.n}{tip.at === null ? '' : ` · at ${fmtAt(tip.at)}`}</span>
       </div>
     </div>
   {/if}
@@ -359,6 +481,14 @@
     stroke-linecap: butt;
   }
 
+  /* The slot under the cursor, drawn as the window of clock it actually was.
+     Low enough to sit under the lines rather than over them — it is the
+     backdrop the run happened against, not a mark on it. */
+  .band {
+    opacity: 0.13;
+    pointer-events: none;
+  }
+
   .hit {
     fill: transparent;
     cursor: crosshair;
@@ -404,6 +534,13 @@
   }
   .meta {
     color: var(--muted);
+  }
+  /* Whoever took the question, in the colour their line is drawn in. */
+  .by {
+    font-weight: 500;
+  }
+  .none {
+    color: var(--faint);
   }
 
   .legend {

@@ -2,6 +2,7 @@
   import type { MatchResult, PlayerInfo, RoomGame } from '../lib/net'
   import type { Sample } from '../lib/series'
   import type { Step } from '../lib/steps'
+  import type { Slot } from '../lib/rush'
   import { TIERS, type Config } from '../lib/config'
   import { question } from '../lib/questions'
   import { seats as buildSeats } from '../lib/players'
@@ -14,6 +15,7 @@
     players = [],
     samples = [],
     steps = [],
+    slots = [],
     seed,
     cfg,
     durMs,
@@ -30,6 +32,8 @@
     samples?: Sample[]
     /** Your own answers, in order — the graph hangs its tooltips off these. */
     steps?: Step[]
+    /** Rush only: every question the run held. See lib/rush.ts. */
+    slots?: Slot[]
     /** The run's question stream, so the one it ended on can be named. */
     seed: number
     cfg: Config
@@ -122,7 +126,7 @@
   </div>
 
   <div class="graph">
-    <Graph {samples} {steps} {pending} durSec={durMs / 1000} seats={seatList} />
+    <Graph {samples} {steps} {pending} {slots} durSec={durMs / 1000} seats={seatList} />
   </div>
 
   <div class="actions">

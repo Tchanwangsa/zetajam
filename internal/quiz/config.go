@@ -48,11 +48,13 @@ const RushMs = RushSec * 1000
 // A slot no longer runs its five seconds out once somebody has it — the point
 // is gone, so the wait is dead time — but the turnover is not instant either:
 // the winner's own screen would swap the equation out from under their fingers
-// mid-keystroke, and nobody would ever see who took it. This is the whole of
-// the pause. Shorten it to zero if you want the question to change on the
-// claim itself; the verdict line under the bar survives into the next slot
-// either way.
-const RushGapMs = 500
+// mid-keystroke. This is the whole of the pause, and it is deliberately
+// shorter than the eye needs to read a name, because the verdict line under
+// the bar carries into the next slot rather than going with this one.
+//
+// Must stay positive: it is the floor on how long a slot can last, and the
+// fold below is what stops a run being an unbounded number of them.
+const RushGapMs = 300
 
 // RushNext is the millisecond at which the slot after the one that opened at
 // `open` begins.

@@ -11,6 +11,7 @@
   } from './lib/net'
   import type { Sample } from './lib/series'
   import type { Step } from './lib/steps'
+  import { timeline } from './lib/rush'
   import { question } from './lib/questions'
   import { load, save, sig, type Config } from './lib/config'
   import { codeFromURL, setURL, validCode } from './lib/room'
@@ -57,6 +58,16 @@
   // who knows — it settles the race by arrival — so this is entirely its word,
   // including for your own buzzes.
   let claims = $state<Record<number, Claim>>({})
+
+  // Rush only: the run laid out as the questions it held, rebuilt whenever a
+  // claim settles one. It lives up here rather than in either screen because
+  // both want it and only this one has the claims — and because a run's shape
+  // has to survive Game being torn down, exactly like `steps`.
+  const slots = $derived(
+    match && match.cfg.mode === 'rush'
+      ? timeline(match.seed, match.cfg, claims, match.durMs)
+      : [],
+  )
 
   let room = $state<RoomInfo | null>(null)
   let joinCode = $state(deepLink)
@@ -454,6 +465,7 @@
           {scores}
           spectating={match.spectating}
           {claims}
+          {slots}
           bind:samples
           bind:steps
           onAnswer={answer}
@@ -467,6 +479,7 @@
         players={match.players}
         {samples}
         {steps}
+        {slots}
         seed={match.seed}
         cfg={match.cfg}
         durMs={match.durMs}

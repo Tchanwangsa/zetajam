@@ -4,6 +4,7 @@
   import type { Sample } from '../lib/series'
   import type { Step } from '../lib/steps'
   import type { Claim, PlayerInfo } from '../lib/net'
+  import type { Slot } from '../lib/rush'
   import { seats as buildSeats } from '../lib/players'
   import Graph from './Graph.svelte'
   import Scoreboard from './Scoreboard.svelte'
@@ -19,6 +20,7 @@
     scores = {},
     spectating = false,
     claims = {},
+    slots = [],
     samples = $bindable([] as Sample[]),
     steps = $bindable([] as Step[]),
     onAnswer,
@@ -36,6 +38,8 @@
     spectating?: boolean
     /** Rush only: who took each slot, as the server settled it. */
     claims?: Record<number, Claim>
+    /** Rush only: the whole run as questions. See lib/rush.ts. */
+    slots?: Slot[]
     samples?: Sample[]
     /** Your own answers, in order. Empty while spectating — see lib/steps.ts. */
     steps?: Step[]
@@ -343,7 +347,16 @@
   {/if}
 
   <div class="graph">
-    <Graph {samples} {steps} durSec={durMs / 1000} seats={seatList} dim={phase === 'live'} />
+    <!-- Only the slots that have closed. The live one is the question on the
+         screen above, and the graph does not hand out answers to that. -->
+    <Graph
+      {samples}
+      {steps}
+      slots={rush ? slots.slice(0, slot) : []}
+      durSec={durMs / 1000}
+      seats={seatList}
+      dim={phase === 'live'}
+    />
   </div>
 </section>
 
