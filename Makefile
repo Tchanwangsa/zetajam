@@ -98,10 +98,21 @@ check: parity web
 	go vet ./...
 	cd web && npm run check
 
-## deploy — Cloud Run. One instance, always warm: matches and rooms live in
-## this process's memory, so a second instance means two players can land on
-## different machines and never see each other, and a cold start drops every
-## open socket. Websockets need the timeout raised from the 5-minute default.
+## deploy — Cloud Run. At most one instance: matches and rooms live in this
+## process's memory, so a second instance means two players can land on
+## different machines and never see each other. --max-instances 1 is the flag
+## that guarantees that, and it is not negotiable.
+##
+## --min-instances is 0 on purpose, and used to be 1. Warm is not free: Cloud
+## Run bills a websocket for its whole open lifetime at the active-CPU rate,
+## not the idle one, so a pinned instance with a single forgotten tab on it
+## costs about $0.12/hour whether or not anybody is playing. Scaling to zero
+## buys a cold start instead, and this binary's is 76ms at p99 — a Go server
+## with its assets embedded has nothing to warm up. The other half of this
+## lives in web/src/lib/client.svelte.ts: a hidden tab puts its socket down,
+## because an instance cannot reach zero while one is still held open.
+##
+## Websockets need the timeout raised from the 5-minute default.
 ##
 ## IMAGE is how CI hands in an image it built and pushed itself. Without it
 ## this still deploys --source, which is what you want by hand: no registry to
@@ -115,7 +126,7 @@ deploy:
 		$(if $(IMAGE),--image $(IMAGE),--source .) \
 		--region $(REGION) \
 		--allow-unauthenticated \
-		--min-instances 1 \
+		--min-instances 0 \
 		--max-instances 1 \
 		--timeout 3600 \
 		--session-affinity \

@@ -3,5 +3,7 @@ node_modules/
 web/dist/
 server/dist/*
 !server/dist/.gitkeep
+# `go build ./server` drops its output here; the Makefile builds to bin/.
+server/server
 .DS_Store
 tmp/

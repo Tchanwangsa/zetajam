@@ -27,6 +27,26 @@ const (
 	// full every time anyone joins, leaves or changes a setting — stays a
 	// thing you can send on every keystroke without thinking about it.
 	roomLogMax = 12
+	// How long a room may sit with nothing happening in it before it is
+	// closed. Not a tidiness measure: a member of a room is the one client
+	// the browser will not put its socket to sleep, because closing the
+	// socket is exactly how you leave a room — see Hub.remove and sleep() in
+	// web/src/lib/net.ts. So an abandoned room is an open socket for as long
+	// as the tab lives, and this server is billed by the second one is open.
+	// Anything happening in the room pushes this back out; a run in progress
+	// is exempt however long it takes.
+	roomIdle = 15 * time.Minute
+	// How long a client may hold a socket open having said nothing and having
+	// nothing held for it. The browser puts its own socket down long before
+	// this — see sleep() in web/src/lib/net.ts — so this is the backstop for
+	// the tabs that cannot: a backgrounded phone browser freezes timers
+	// outright, and a socket nothing will ever close again is billed for as
+	// long as the tab lives.
+	clientIdle = 10 * time.Minute
+	// The close code for that, which means "you were idle — do not come back
+	// on your own". A plain close is a network blip as far as the browser is
+	// concerned, and Net reconnects out of one within the second.
+	closeIdle = 4001
 	// Ambiguous glyphs are left out: a code gets read down a phone line.
 	codeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 	codeLen      = 4
@@ -42,8 +62,11 @@ type Client struct {
 	name string
 	send chan []byte
 	hub  *Hub
+	// Closed once, by doze, to bring this socket down from our side.
+	quit chan struct{}
 
 	// Everything below is guarded by hub.mu.
+	seen      time.Time // when this client last said anything
 	cfg       quiz.Config
 	match     *Match
 	room      *Room
@@ -112,6 +135,9 @@ type Room struct {
 	// This is the whole of the room's memory: it is born when the room is and
 	// dies with it, like everything else in here.
 	log []roomGame
+	// When something last happened in here. Stamped by roomFrameLocked, read
+	// by reapRooms.
+	touched time.Time
 }
 
 type Hub struct {
@@ -161,12 +187,25 @@ func pushAll(cs []*Client, m outbound) {
 	}
 }
 
+// doze brings a client's socket down from our side, once. writePump sees the
+// channel close and sends the idle code; readPump then unwinds into Hub.remove
+// like any other disconnect, so there is no second teardown path to keep in
+// step with the first. Callers hold hub.mu.
+func doze(c *Client) {
+	select {
+	case <-c.quit:
+	default:
+		close(c.quit)
+	}
+}
+
 // --- registration ---------------------------------------------------------
 
 func (h *Hub) add(c *Client) {
 	h.mu.Lock()
 	h.clients[c] = true
 	c.id = newID()
+	c.seen = time.Now()
 	c.cfg = h.def
 	best := h.best
 	h.mu.Unlock()
@@ -331,7 +370,15 @@ func (h *Hub) newCodeLocked() string {
 
 // roomFrameLocked snapshots a room into the frame everyone in it gets, plus
 // the list to send it to. Built under the lock, sent outside it.
+//
+// It also stamps the room as alive, which is why reapRooms can be as simple as
+// it is. Every caller of this is a real change to the room — joined, left,
+// renamed, relisted, reconfigured, finished a run — and there is no other way
+// to tell a room's members anything, nor any timer that calls it. So this is
+// the one place the stamp cannot be forgotten by whoever adds the next kind of
+// change, which is worth a snapshot function that does not only snapshot.
 func (h *Hub) roomFrameLocked(r *Room) (outbound, []*Client) {
+	r.touched = time.Now()
 	members := make([]playerInfo, 0, len(r.members))
 	for _, c := range r.members {
 		members = append(members, playerInfo{ID: c.id, Name: c.name})
@@ -401,7 +448,10 @@ func (h *Hub) roomCreate(c *Client, name string, public bool, cfg *quiz.Config) 
 	c.name = clampName(name)
 	c.cfg = conf
 
-	r := &Room{code: h.newCodeLocked(), host: c, members: []*Client{c}, cfg: conf, public: public}
+	r := &Room{
+		code: h.newCodeLocked(), host: c, members: []*Client{c},
+		cfg: conf, public: public, touched: time.Now(),
+	}
 	h.rooms[r.code] = r
 	c.room = r
 	frame, to := h.roomFrameLocked(r)
@@ -851,6 +901,57 @@ func (h *Hub) broadcastPresence() {
 // on it, marked, rather than blinking out and back: a list that empties itself
 // the moment a game starts reads as "nobody is here", which is the opposite of
 // what it means.
+// reapRooms closes every room that has sat untouched for roomIdle, and tells
+// whoever was still in it why. A room in the middle of a run is left alone no
+// matter how long the run runs.
+//
+// Members are walked out one at a time through leaveRoomLocked rather than the
+// map entry being dropped whole, so the room dies the same way it dies when
+// the last person leaves of their own accord — host reassignment, code
+// released, no second path to keep in step with the first. The frames it hands
+// back are for members who are staying, and here nobody is, so they go in the
+// bin: everyone gets room.gone instead.
+func (h *Hub) reapRooms() {
+	h.mu.Lock()
+	cutoff := time.Now().Add(-roomIdle)
+	var evicted []*Client
+	for _, r := range h.rooms {
+		if r.match != nil || r.touched.After(cutoff) {
+			continue
+		}
+		evicted = append(evicted, r.members...)
+	}
+	for _, c := range evicted {
+		h.leaveRoomLocked(c)
+	}
+	h.mu.Unlock()
+
+	if len(evicted) == 0 {
+		return
+	}
+	for _, c := range evicted {
+		c.push(outbound{T: "room.gone", Msg: "the room closed after 15 minutes of quiet"})
+	}
+	h.broadcastRooms()
+}
+
+// reapClients puts down the socket of anyone who has gone quiet while holding
+// nothing: no room to be dropped out of, no run on the clock, nobody waiting on
+// them. A client that is only watching counts as quiet — an abandoned spectate
+// costs exactly what an abandoned lobby costs. Rooms are reapRooms' business,
+// and their members become this function's the moment it lets them go.
+func (h *Hub) reapClients() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	cutoff := time.Now().Add(-clientIdle)
+	for c := range h.clients {
+		if c.room != nil || c.match != nil || c.seen.After(cutoff) {
+			continue
+		}
+		doze(c)
+	}
+}
+
 func (h *Hub) broadcastRooms() {
 	h.mu.Lock()
 	rooms := make([]roomBrief, 0, len(h.rooms))
@@ -885,8 +986,10 @@ func (h *Hub) broadcastRooms() {
 	pushAll(all, msg)
 }
 
-func (h *Hub) broadcastGames() {
-	h.mu.Lock()
+// gamesLocked is the spectate list: every run worth watching. Its own function
+// because the lobby asks for the same list over HTTP and two copies of "worth
+// watching" would drift. Callers hold hub.mu.
+func (h *Hub) gamesLocked() []gameInfo {
 	games := make([]gameInfo, 0, len(h.matches))
 	for _, m := range h.matches {
 		if len(m.players) < 2 || m.done {
@@ -899,6 +1002,39 @@ func (h *Hub) broadcastGames() {
 		}
 		games = append(games, g)
 	}
+	return games
+}
+
+// lobbyView is everything the first screen shows, in one answer. The lobby
+// holds no socket — it is not playing anything and has nobody to be kept for,
+// so it asks once and slowly polls while somebody is looking at it. See
+// needsHub in web/src/lib/client.svelte.ts.
+type lobbyView struct {
+	Online  int        `json:"online"`
+	Playing int        `json:"playing"`
+	Best    *result    `json:"best,omitempty"`
+	Games   []gameInfo `json:"games,omitempty"`
+}
+
+func (h *Hub) lobbyView() lobbyView {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	v := lobbyView{Online: len(h.clients), Games: h.gamesLocked()}
+	for c := range h.clients {
+		if c.match != nil {
+			v.Playing++
+		}
+	}
+	if h.best.Score > 0 {
+		best := h.best
+		v.Best = &best
+	}
+	return v
+}
+
+func (h *Hub) broadcastGames() {
+	h.mu.Lock()
+	games := h.gamesLocked()
 	all := make([]*Client, 0, len(h.clients))
 	for c := range h.clients {
 		all = append(all, c)
@@ -910,6 +1046,10 @@ func (h *Hub) broadcastGames() {
 }
 
 func (h *Hub) handle(c *Client, raw []byte) {
+	h.mu.Lock()
+	c.seen = time.Now()
+	h.mu.Unlock()
+
 	var in inbound
 	if err := json.Unmarshal(raw, &in); err != nil {
 		log.Printf("bad frame from %s: %v", c.id, err)

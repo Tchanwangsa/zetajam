@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"encoding/json"
 	"flag"
 	"io/fs"
 	"log"
@@ -84,10 +85,44 @@ func main() {
 		}
 	}()
 
+	// A room nobody is using still holds its members' sockets open, and an
+	// open socket is what this server is billed for — see roomIdle. A minute
+	// of slack either side of a fifteen-minute cutoff is nothing, and the
+	// sweep is a timestamp compare per room.
+	go func() {
+		for range time.Tick(time.Minute) {
+			hub.reapRooms()
+		}
+	}()
+
+	// And the same sweep one level down, for a socket held open by nothing at
+	// all — see clientIdle. The browser is supposed to have closed it already;
+	// this is what happens when it could not.
+	go func() {
+		for range time.Tick(time.Minute) {
+			hub.reapClients()
+		}
+	}()
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		serveWS(hub, w, r)
 	})
+	// The lobby's whole share of the server. It holds no socket — see needsHub
+	// in web/src/lib/client.svelte.ts — so it asks here instead, and a request
+	// billed in milliseconds replaces a connection billed by the second.
+	mux.HandleFunc("/api/lobby", func(w http.ResponseWriter, r *http.Request) {
+		// A separately hosted frontend is a cross-origin fetch, and unlike a
+		// websocket upgrade the browser does stop this one without a header.
+		if origin := r.Header.Get("Origin"); origin != "" && checkOrigin(r) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		json.NewEncoder(w).Encode(hub.lobbyView())
+	})
+
 	// Not /healthz: Google's edge reserves that path on *.run.app and answers
 	// it with its own 404 before the request ever reaches this process.
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -159,7 +194,7 @@ func serveWS(hub *Hub, w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	c := &Client{send: make(chan []byte, 32), hub: hub}
+	c := &Client{send: make(chan []byte, 32), quit: make(chan struct{}), hub: hub}
 	hub.add(c)
 
 	go writePump(c, conn)
@@ -207,6 +242,13 @@ func writePump(c *Client, conn *websocket.Conn) {
 			if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
 			}
+		case <-c.quit:
+			// Named, so the browser knows this was us and stays down rather
+			// than reconnecting into the same idleness a second later.
+			conn.SetWriteDeadline(time.Now().Add(writeWait))
+			conn.WriteMessage(websocket.CloseMessage,
+				websocket.FormatCloseMessage(closeIdle, "idle"))
+			return
 		}
 	}
 }
