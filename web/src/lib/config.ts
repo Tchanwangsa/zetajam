@@ -32,10 +32,83 @@ export const OP_NAME: Record<Op, string> = {
 /** [lo1, hi1, lo2, hi2] — inclusive bounds for the two operands. */
 export type Range = [number, number, number, number]
 
+/**
+ * The two shapes a run can take. Mirror of quiz.ModeClassic / quiz.ModeRamp.
+ *
+ * Classic draws every question from one fixed pair of ranges — the ones in the
+ * config. Ramp ignores them and walks TIERS instead, so the run opens easy and
+ * ends on the classic defaults.
+ */
+export type Mode = 'classic' | 'ramp'
+
+export const MODES: readonly Mode[] = ['classic', 'ramp']
+
+export const MODE_NAME: Record<Mode, string> = { classic: 'classic', ramp: 'ramp' }
+
+/** One rung of the ramp. Subtraction and division inherit as they always do. */
+export interface Tier {
+  add: Range
+  mul: Range
+}
+
+/** Mirror of quiz.Tiers. Easiest first; the last rung is the classic default. */
+export const TIERS: readonly Tier[] = [
+  { add: [2, 20, 2, 20], mul: [2, 5, 2, 20] },
+  { add: [2, 80, 2, 80], mul: [2, 8, 2, 75] },
+  { add: [2, 100, 2, 100], mul: [2, 12, 2, 100] },
+]
+
+/** Mirror of quiz.TierAt — question counts per minute of the run. */
+export const TIER_AT: readonly number[] = [2, 6, 12]
+
+/**
+ * The rung question `i` falls on. Mirror of quiz.TierOf.
+ *
+ * Integer arithmetic on both sides of the wire, spelled out rather than left
+ * to a float, because the two generators have to agree exactly.
+ */
+export function tierOf(i: number, durSec: number): number {
+  let n = 0
+  for (const at of TIER_AT) {
+    const s = Math.max(1, Math.floor((at * durSec + 30) / 60))
+    if (i >= s) n++
+  }
+  return Math.min(n, TIERS.length - 1)
+}
+
+/**
+ * The last question index the schedule can still move on. Everything past it
+ * is on the top rung, so it is where the scan below stops.
+ *
+ * That scan inverts tierOf by walking it rather than by solving it. That is
+ * deliberate: at a short duration two thresholds can round to the same
+ * question and a rung is skipped outright — at the 10s minimum the run goes
+ * from rung one to rung three on question one — and an inverted formula would
+ * confidently report a rung that never appears.
+ */
+const lastStep = (durSec: number) =>
+  Math.max(1, Math.floor((TIER_AT[TIER_AT.length - 1] * durSec + 30) / 60)) + 1
+
+/** The question rung `k` starts at, or null if this run never lands on it. */
+export function tierStart(k: number, durSec: number): number | null {
+  if (k <= 0) return 0
+  const end = lastStep(durSec)
+  for (let i = 1; i <= end; i++) if (tierOf(i, durSec) === k) return i
+  return null
+}
+
 export interface Config {
+  mode: Mode
   ops: Op[]
   ranges: Record<Op, Range>
   durSec: number
+}
+
+/** The range `op` draws from for question `i`. Mirror of quiz.Config.RangeFor. */
+export function rangeFor(c: Config, op: Op, i: number): Range {
+  if (c.mode !== 'ramp') return c.ranges[op]
+  const t = TIERS[tierOf(i, c.durSec)]
+  return op === 'add' || op === 'sub' ? t.add : t.mul
 }
 
 export const MAX_TERM = 9999
@@ -45,6 +118,7 @@ export const TIMES = [15, 30, 60, 120]
 
 export function defaults(): Config {
   return {
+    mode: 'classic',
     ops: ['add', 'sub', 'mul', 'div'],
     ranges: {
       add: [2, 100, 2, 100],
@@ -89,6 +163,7 @@ export function normalize(c: Partial<Config> | null | undefined): Config {
 
   const dur = Math.trunc(c?.durSec ?? def.durSec)
   return {
+    mode: c?.mode === 'ramp' ? 'ramp' : 'classic',
     ops: ops.length ? ops : def.ops,
     ranges,
     durSec: Math.min(MAX_DUR, Math.max(MIN_DUR, Number.isFinite(dur) ? dur : def.durSec)),
@@ -99,11 +174,18 @@ export function isDefault(c: Config): boolean {
   return sig(c) === sig(defaults())
 }
 
-/** Mirror of quiz.Config.Sig — two players only match on an equal signature. */
+/**
+ * Mirror of quiz.Config.Sig — two configs that would produce the same run have
+ * the same signature. Used here to tell a real settings change from a no-op.
+ *
+ * A ramp run leaves the ranges out because it never reads them: two ramp runs
+ * would otherwise differ over numbers neither one would have used.
+ */
 export function sig(c: Config): string {
   return [
-    String(c.durSec),
+    `${c.mode}:${c.durSec}`,
     ...c.ops.map((op) => {
+      if (c.mode === 'ramp') return op
       const r = c.ranges[op]
       return `${op}:${r[0]}-${r[1]},${r[2]}-${r[3]}`
     }),
@@ -120,7 +202,8 @@ export function fmtDur(sec: number): string {
 
 /** The one-line summary the bar and the lobby both show. */
 export function summary(c: Config): string {
-  return `${OPS.filter((o) => c.ops.includes(o)).map((o) => GLYPH[o]).join(' ')} · ${fmtDur(c.durSec)}`
+  const ops = OPS.filter((o) => c.ops.includes(o)).map((o) => GLYPH[o]).join(' ')
+  return `${ops} · ${fmtDur(c.durSec)}${c.mode === 'ramp' ? ' · ramp' : ''}`
 }
 
 const KEY = 'zetajam.cfg'

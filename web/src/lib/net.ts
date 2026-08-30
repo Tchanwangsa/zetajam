@@ -24,11 +24,23 @@ export interface RoomInfo {
   hostId: string
   members: PlayerInfo[]
   cfg: Config
+  /** Listed on the public board, or reachable only by its code. */
+  public: boolean
+}
+
+/** One row of the public board. Private rooms never appear in it. */
+export interface RoomBrief {
+  code: string
+  host: string
+  members: number
+  max: number
+  /** Mid-run — the room is on the board but the door is shut. */
+  playing: boolean
+  cfg: Config
 }
 
 export type Msg =
   | { t: 'welcome'; self: PlayerInfo; best?: MatchResult }
-  | { t: 'queued' }
   | {
       t: 'match'
       seed: number
@@ -48,7 +60,10 @@ export type Msg =
   | { t: 'score'; id: string; score?: number; ms?: number }
   | { t: 'end'; results: MatchResult[]; best?: MatchResult }
   | { t: 'online'; online?: number; playing?: number }
-  | { t: 'games'; games: GameInfo[] }
+  // Both lists are dropped from the frame entirely when they are empty — see
+  // the `omitempty` note in App.svelte — so neither is safe to read unguarded.
+  | { t: 'games'; games?: GameInfo[] }
+  | { t: 'rooms'; rooms?: RoomBrief[] }
   | { t: 'room'; room: RoomInfo }
   | { t: 'room.gone'; msg: string }
   | { t: 'err'; msg: string }

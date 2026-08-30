@@ -1,6 +1,9 @@
 <script lang="ts">
   import type { MatchResult, PlayerInfo } from '../lib/net'
   import type { Sample } from '../lib/series'
+  import type { Step } from '../lib/steps'
+  import { TIERS, type Config } from '../lib/config'
+  import { question } from '../lib/questions'
   import { seats as buildSeats } from '../lib/players'
   import Graph from './Graph.svelte'
 
@@ -9,6 +12,9 @@
     selfId,
     players = [],
     samples = [],
+    steps = [],
+    seed,
+    cfg,
     durMs,
     inRoom = false,
     onAgain,
@@ -20,6 +26,11 @@
     /** Roster order, so the graph colours match the ones you just played under. */
     players?: PlayerInfo[]
     samples?: Sample[]
+    /** Your own answers, in order — the graph hangs its tooltips off these. */
+    steps?: Step[]
+    /** The run's question stream, so the one it ended on can be named. */
+    seed: number
+    cfg: Config
     durMs: number
     inRoom?: boolean
     onAgain: () => void
@@ -50,6 +61,11 @@
   })
 
   const rate = $derived(mine ? (mine.score * 60000) / durMs : 0)
+
+  // The question you were still on when the clock stopped — index `steps.length`
+  // in the stream, because every question before it is an answer in the log.
+  // Only ever computed here: mid-run it is the one on your screen.
+  const pending = $derived(steps.length ? question(seed, steps.length, cfg) : null)
 </script>
 
 <section class="results">
@@ -79,13 +95,15 @@
     </ol>
   {/if}
 
-  <div class="meta num">{rate.toFixed(1)} answers / min</div>
+  <div class="meta num">
+    {rate.toFixed(1)} answers / min
+  </div>
   {#if mine?.flagged}
     <div class="flag">flagged: answers came in faster than a human hand</div>
   {/if}
 
   <div class="graph">
-    <Graph {samples} durSec={durMs / 1000} seats={seatList} />
+    <Graph {samples} {steps} {pending} durSec={durMs / 1000} seats={seatList} />
   </div>
 
   <div class="actions">

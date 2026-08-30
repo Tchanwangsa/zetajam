@@ -5,22 +5,16 @@
     name = $bindable(''),
     games = [],
     best,
-    queued = false,
-    onPlay,
+    onMulti,
     onSolo,
-    onFriends,
     onSpectate,
-    onCancel,
   }: {
     name?: string
     games?: GameInfo[]
     best?: MatchResult
-    queued?: boolean
-    onPlay: () => void
+    onMulti: () => void
     onSolo: () => void
-    onFriends: () => void
     onSpectate: (id: string) => void
-    onCancel: () => void
   } = $props()
 
   let input = $state<HTMLInputElement>()
@@ -28,33 +22,24 @@
 </script>
 
 <section class="lobby">
-  <h1>zetajam</h1>
-  <p class="tag">mental arithmetic, head to head</p>
-
-  {#if queued}
-    <div class="queued">
-      <span class="pulse"></span>
-      looking for an opponent on these settings
-    </div>
-    <button class="btn btn-ghost" onclick={onCancel}>play alone instead</button>
-  {:else}
-    <input
-      class="field name"
-      bind:this={input}
-      bind:value={name}
-      onkeydown={(e) => e.key === 'Enter' && onPlay()}
-      placeholder="your name"
-      maxlength="20"
-      autocomplete="off"
-      spellcheck="false"
-      aria-label="your name"
-    />
-    <div class="actions">
-      <button class="btn btn-primary" onclick={onPlay}>find a match</button>
-      <button class="btn btn-ghost" onclick={onFriends}>play with friends</button>
-      <button class="btn btn-ghost" onclick={onSolo}>practice solo</button>
-    </div>
-  {/if}
+  <input
+    class="field name"
+    bind:this={input}
+    bind:value={name}
+    onkeydown={(e) => e.key === 'Enter' && onMulti()}
+    placeholder="your name"
+    maxlength="20"
+    autocomplete="off"
+    spellcheck="false"
+    aria-label="your name"
+  />
+  <!-- Two doors, not three. Playing against somebody is one thing now — a
+       room, public or private — and the choice between those belongs on the
+       screen where you make one, not here. -->
+  <div class="actions">
+    <button class="btn btn-primary" onclick={onMulti}>multiplayer</button>
+    <button class="btn btn-ghost" onclick={onSolo}>practice solo</button>
+  </div>
 
   {#if best}
     <p class="best num">best today — <strong>{best.score}</strong> by {best.name}</p>
@@ -74,23 +59,15 @@
 </section>
 
 <style>
+  /* The wordmark lives in the header now, so there is no title to sit under —
+     the name field is the first thing on the screen and the top padding is
+     what keeps it off the settings bar. */
   .lobby {
     display: flex;
     flex-direction: column;
     align-items: center;
     text-align: center;
-    padding-top: 6vh;
-  }
-  h1 {
-    font-size: 2.4rem;
-    font-weight: 600;
-    letter-spacing: -0.04em;
-    margin: 0;
-  }
-  .tag {
-    color: var(--muted);
-    margin: 6px 0 36px;
-    font-size: 14px;
+    padding-top: 14vh;
   }
   .name {
     width: 260px;
@@ -100,37 +77,18 @@
     font-size: 17px;
   }
 
+  /* One column, one width. Side by side these read as a row of equals; stacked
+     and matched to the field above them, the primary one is plainly first. */
   .actions {
     display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
+    flex-direction: column;
     gap: 10px;
-    margin-top: 14px;
+    width: 260px;
+    max-width: 100%;
+    margin-top: 12px;
   }
-
-  .queued {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    color: var(--muted);
-    font-size: 15px;
-    margin-bottom: 18px;
-  }
-  .pulse {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--accent);
-    animation: breathe 1.6s ease-in-out infinite;
-  }
-  @keyframes breathe {
-    0%,
-    100% {
-      opacity: 0.25;
-    }
-    50% {
-      opacity: 1;
-    }
+  .actions :global(.btn) {
+    width: 100%;
   }
 
   .best {

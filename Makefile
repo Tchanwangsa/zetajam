@@ -35,6 +35,9 @@ run: build
 ## deliberately sets only add and mul: sub and div inherit those ranges in
 ## Normalize, and this proves both mirrors inherit them identically.
 CFG := {"ops":["sub","div"],"ranges":{"add":[5,900,1,60],"mul":[3,17,7,250]}}
+## The ramp case runs at a length the tier thresholds do not divide evenly, so
+## the per-minute scaling has to round identically on both sides or it diverges.
+RAMP := {"mode":"ramp","durSec":45,"ranges":{"add":[5,900,1,60],"mul":[3,17,7,250]}}
 
 parity:
 	@cd web && npx esbuild scripts/parity.ts --bundle --platform=node \
@@ -45,6 +48,9 @@ parity:
 	@go run ./cmd/parity 987654321 500 '$(CFG)' > /tmp/zj-go2.txt
 	@node /tmp/zj-parity.mjs 987654321 500 '$(CFG)' > /tmp/zj-ts2.txt
 	@diff /tmp/zj-go2.txt /tmp/zj-ts2.txt && echo "parity ok — custom config"
+	@go run ./cmd/parity 555000111 500 '$(RAMP)' > /tmp/zj-go3.txt
+	@node /tmp/zj-parity.mjs 555000111 500 '$(RAMP)' > /tmp/zj-ts3.txt
+	@diff /tmp/zj-go3.txt /tmp/zj-ts3.txt && echo "parity ok — ramp"
 
 check: parity
 	go vet ./...

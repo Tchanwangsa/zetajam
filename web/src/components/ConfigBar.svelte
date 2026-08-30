@@ -5,6 +5,8 @@
     INVERSE_OF,
     GLYPH,
     OP_NAME,
+    MODES,
+    TIERS,
     TIMES,
     MAX_TERM,
     MIN_DUR,
@@ -12,13 +14,15 @@
     defaults,
     normalize,
     isDefault,
+    tierStart,
     type Config,
+    type Mode,
     type Op,
     type Range,
   } from '../lib/config'
   import NumField from './ui/NumField.svelte'
   import Popover from './ui/Popover.svelte'
-  import { Wrench } from '@lucide/svelte';
+  import { Brain, Settings2, TrendingUp, Wrench } from '@lucide/svelte';
 
   /**
    * The settings, as a toolbar rather than a modal you have to finish with.
@@ -29,6 +33,11 @@
    * wrong. `disabled` is for the two cases where changing it would be unfair to
    * somebody else: a versus match already in progress, and a room you are not
    * the host of.
+   *
+   * The three blocks are three separate questions — what kind of run, over
+   * which operations, for how long — so they are three separate pills rather
+   * than one long one with dividers in it. Nothing in a block changes what the
+   * other blocks mean.
    */
   let {
     cfg,
@@ -42,15 +51,27 @@
     note?: string
   } = $props()
 
+  const MODE_ICON = { classic: Brain, ramp: TrendingUp }
+  const MODE_HINT: Record<Mode, string> = {
+    classic: 'one difficulty the whole way',
+    ramp: 'starts easy, steps up as the run goes on',
+  }
+
   let showRanges = $state(false)
-  // The seconds box shows either because you asked for it or because the
-  // length in force is not one of the presets — which is how a room member
-  // sees the odd number the host typed.
-  let wantCustom = $state(false)
-  const custom = $derived(wantCustom || !TIMES.includes(cfg.durSec))
+  let showDur = $state(false)
+  // A length that is not one of the presets is a custom one, and there is
+  // nothing else it could be — so the chip reads it off the config rather than
+  // remembering that you opened the box, which is also how a room member sees
+  // the odd number the host typed.
+  const custom = $derived(!TIMES.includes(cfg.durSec))
 
   const enabled = (op: Op) => cfg.ops.includes(op)
   const update = (next: Config) => onChange(normalize(next))
+
+  function setMode(mode: Mode) {
+    if (disabled || cfg.mode === mode) return
+    update({ ...cfg, mode })
+  }
 
   function toggle(op: Op) {
     if (disabled) return
@@ -59,15 +80,13 @@
     update({ ...cfg, ops: next })
   }
 
+  // Typing a preset's own number is picking that preset — the chip lights up
+  // and the custom one goes back to being an icon, because 60 typed and 60
+  // clicked are the same run.
   function setDur(sec: number) {
     if (disabled) return
-    if (TIMES.includes(sec)) wantCustom = false // typed your way back to a preset
     update({ ...cfg, durSec: sec })
-  }
-
-  function pickPreset(sec: number) {
-    wantCustom = false
-    setDur(sec)
+    showDur = false
   }
 
   function setTerm(op: Op, k: number, v: number) {
@@ -77,16 +96,40 @@
   }
 
   function reset() {
-    wantCustom = false
     update(defaults())
   }
 
   const std = $derived(isDefault(cfg))
+  const ramp = $derived(cfg.mode === 'ramp')
+
+  // The panel lists the rungs alongside the question each one starts at, which
+  // is the only place the per-minute scaling is visible: at 15s the ramp is
+  // over in three questions, at five minutes it takes fifty. At the very
+  // shortest lengths two thresholds round to the same question and a rung is
+  // skipped outright, which is why `from` is allowed to be null.
+  const rungs = $derived(TIERS.map((t, k) => ({ ...t, from: tierStart(k, cfg.durSec) })))
 </script>
 
 <div class="wrap">
   <div class="bar num" class:off={disabled}>
-    <div class="group" role="group" aria-label="operations">
+    <div class="block" role="group" aria-label="mode">
+      {#each MODES as m (m)}
+        {@const Icon = MODE_ICON[m]}
+        <button
+          class="item mode"
+          class:on={cfg.mode === m}
+          aria-pressed={cfg.mode === m}
+          title={MODE_HINT[m]}
+          onclick={() => setMode(m)}
+          {disabled}
+        >
+          <Icon size={13} />
+          {m}
+        </button>
+      {/each}
+    </div>
+
+    <div class="block" role="group" aria-label="operations">
       {#each OPS as op (op)}
         <button
           class="item glyph"
@@ -103,47 +146,64 @@
         class="item"
         class:on={showRanges}
         aria-expanded={showRanges}
+        aria-label="operations and ranges"
+        title="operations and ranges"
         onclick={() => (showRanges = !showRanges)}
       >
-        <Wrench size={12} />
+        <Wrench size={13} />
       </button>
     </div>
 
-    <span class="sep" aria-hidden="true"></span>
-
-    <div class="group" role="group" aria-label="match length">
+    <div class="block" role="group" aria-label="match length">
       {#each TIMES as t (t)}
-        <button
-          class="item"
-          class:on={!custom && cfg.durSec === t}
-          onclick={() => pickPreset(t)}
-          {disabled}
-        >
+        <button class="item" class:on={cfg.durSec === t} onclick={() => setDur(t)} {disabled}>
           {t}
         </button>
       {/each}
-      <button
-        class="item"
-        class:on={custom}
-        aria-pressed={custom}
-        onclick={() => (wantCustom = true)}
-        {disabled}
-      >
-        custom
-      </button>
-      {#if custom}
-        <NumField
-          value={cfg.durSec}
-          onCommit={setDur}
-          min={MIN_DUR}
-          max={MAX_DUR}
-          width={52}
-          label="match length in seconds"
-          autofocus={wantCustom}
+      <!-- The chip is its own anchor so the box drops under the icon rather
+           than under the middle of the bar. -->
+      <span class="anchor">
+        <button
+          class="item"
+          class:on={custom}
+          aria-pressed={custom}
+          aria-expanded={showDur}
+          aria-label={custom ? `match length, ${cfg.durSec} seconds` : 'custom match length'}
+          title="custom match length"
+          onclick={() => (showDur = !showDur)}
           {disabled}
-        />
-        <span class="unit">s</span>
-      {/if}
+        >
+          {#if custom}
+            {cfg.durSec}s
+          {:else}
+            <Settings2 size={13} />
+          {/if}
+        </button>
+
+        {#if showDur}
+          <Popover
+            onClose={() => (showDur = false)}
+            align="right"
+            label="custom match length"
+            width={196}
+          >
+            <div class="micro head">match length</div>
+            <div class="dur num">
+              <NumField
+                value={cfg.durSec}
+                onCommit={setDur}
+                min={MIN_DUR}
+                max={MAX_DUR}
+                width={62}
+                label="match length in seconds"
+                autofocus
+                {disabled}
+              />
+              <span class="secs">seconds · {MIN_DUR}–{MAX_DUR}</span>
+            </div>
+          </Popover>
+        {/if}
+      </span>
     </div>
   </div>
 
@@ -163,7 +223,10 @@
               <span class="name">{OP_NAME[op]}</span>
             </label>
 
-            {#if FORWARD.includes(op)}
+            {#if ramp}
+              <!-- Ranges are the rungs' in a ramp run, so there is nothing here
+                   to type into — see the tier table below. -->
+            {:else if FORWARD.includes(op)}
               <div class="range num">
                 <span class="lead">Range:</span>
                 <span class="paren">(</span>
@@ -213,6 +276,22 @@
         {/each}
       </div>
 
+      {#if ramp}
+        <div class="tiers num">
+          <div class="micro head">the ramp — at {cfg.durSec}s</div>
+          {#each rungs as t, k (k)}
+            <div class="tier">
+              <span class="at">{t.from === null ? 'skipped' : `from q${t.from}`}</span>
+              <span class="spec">
+                {t.add[0]}–{t.add[1]} + {t.add[2]}–{t.add[3]}
+                <span class="dot">·</span>
+                {t.mul[0]}–{t.mul[1]} × {t.mul[2]}–{t.mul[3]}
+              </span>
+            </div>
+          {/each}
+        </div>
+      {/if}
+
       <div class="foot">
         <button class="btn-link" onclick={reset} disabled={std || disabled}>
           restore defaults
@@ -240,10 +319,7 @@
     align-items: center;
     flex-wrap: wrap;
     justify-content: center;
-    gap: 2px;
-    padding: 5px 8px;
-    border-radius: 999px;
-    background: var(--grid);
+    gap: 32px;
     font-size: 13px;
     transition: opacity 140ms ease;
   }
@@ -251,16 +327,13 @@
     opacity: 0.65;
   }
 
-  .group {
+  .block {
     display: flex;
     align-items: center;
     gap: 2px;
-  }
-  .sep {
-    width: 1px;
-    height: 16px;
-    margin: 0 8px;
-    background: var(--line);
+    padding: 5px 8px;
+    border-radius: 999px;
+    background: var(--grid);
   }
 
   .item {
@@ -282,14 +355,31 @@
     cursor: default;
   }
 
+  .mode {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
   .glyph {
     font-size: 15px;
     min-width: 32px;
   }
-  .unit {
+
+  /* Both popovers are absolute; this is what the length one hangs off. */
+  .anchor {
+    position: relative;
+    display: inline-flex;
+  }
+  .dur {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .secs {
     font-size: 11px;
     color: var(--faint);
-    padding-left: 2px;
   }
 
   .note {
@@ -358,6 +448,36 @@
     color: var(--faint);
   }
 
+  .tiers {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--line);
+  }
+  .head {
+    margin-bottom: 2px;
+  }
+  .tier {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    font-size: 12px;
+  }
+  .at {
+    flex: none;
+    width: 62px;
+    color: var(--faint);
+  }
+  .spec {
+    color: var(--muted);
+  }
+  .dot {
+    color: var(--faint);
+    padding: 0 4px;
+  }
+
   .foot {
     display: flex;
     align-items: center;
@@ -367,10 +487,10 @@
     padding-top: 10px;
     border-top: 1px solid var(--line);
   }
-  
+
   @media (max-width: 560px) {
-    .sep {
-      margin: 0 4px;
+    .bar {
+      gap: 6px;
     }
     .item {
       padding: 0 8px;

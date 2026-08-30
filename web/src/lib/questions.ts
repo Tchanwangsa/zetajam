@@ -1,5 +1,5 @@
 import { Rng, mix32 } from './rng'
-import { defaults, type Config } from './config'
+import { defaults, rangeFor, type Config } from './config'
 
 export interface Question {
   text: string
@@ -19,12 +19,16 @@ export interface Question {
  *
  * Subtraction and division are built as the inverse of an addition and a
  * multiplication, so answers are always clean positive integers.
+ *
+ * Which range the operands come off is the one thing that is not fixed: a ramp
+ * run reads the rung `i` falls on rather than the config's own ranges. The draw
+ * itself is untouched by that, so both modes cost the same intn calls.
  */
 export function question(seed: number, i: number, cfg: Config = defaults()): Question {
   const r = new Rng(mix32((seed ^ mix32((i + 1) >>> 0)) >>> 0))
 
   const op = cfg.ops[r.intn(cfg.ops.length)]
-  const [lo1, hi1, lo2, hi2] = cfg.ranges[op]
+  const [lo1, hi1, lo2, hi2] = rangeFor(cfg, op, i)
   const a = lo1 + r.intn(hi1 - lo1 + 1)
   const b = lo2 + r.intn(hi2 - lo2 + 1)
 

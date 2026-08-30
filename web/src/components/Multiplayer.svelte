@@ -1,40 +1,59 @@
 <script lang="ts">
+  import type { RoomBrief } from '../lib/net'
+  import { summary } from '../lib/config'
   import { CODE_LEN, cleanCode, validCode } from '../lib/room'
+  import { Globe, Lock } from '@lucide/svelte'
 
   /**
-   * The fork in the road: start a room or join one. Two things, side by side,
-   * rather than a code box that also has a "or create" link underneath it —
-   * whoever is organising the game and whoever was sent the link want opposite
-   * halves of this screen, and neither should have to read the other's.
+   * One screen for every way of playing against somebody. There used to be two
+   * — a queue that paired you with a stranger on matching settings, and a
+   * private room you shared a code for — and they were the same thing wearing
+   * different clothes: a group, a config, and somebody who says go. So there is
+   * one room now, and `public` is the only knob. Public rooms sit on the board
+   * below for anyone to walk into; private ones are reachable only by code.
+   *
+   * The queue is gone with it. Waiting on a stranger whose settings happened to
+   * match yours told you nothing while you waited and often never resolved. A
+   * board of real rooms you can read the settings off before joining answers
+   * the same question — who can I play right now — out loud.
    */
   let {
     name = $bindable(''),
     code = $bindable(''),
+    rooms = [],
     error = '',
     joining = '',
     onCreate,
     onJoin,
+    onJoinCode,
     onCancel,
     onBack,
   }: {
     name?: string
     code?: string
+    rooms?: RoomBrief[]
     error?: string
     /** A code we have asked to join and not yet heard back about. */
     joining?: string
-    onCreate: () => void
+    onCreate: (isPublic: boolean) => void
     onJoin: () => void
+    onJoinCode: (code: string) => void
     onCancel: () => void
     onBack: () => void
   } = $props()
 
   let nameEl = $state<HTMLInputElement>()
+  // What the next room you make will be. Remembered, because whoever runs
+  // public rooms runs public rooms.
+  let isPublic = $state(localStorage.getItem('zetajam.public') !== '0')
+  $effect(() => localStorage.setItem('zetajam.public', isPublic ? '1' : '0'))
 
   $effect(() => {
     if (!joining) nameEl?.focus()
   })
 
   const ready = $derived(validCode(code))
+  const open = $derived(rooms.filter((r) => !r.playing && r.members < r.max))
 </script>
 
 <section class="mp">
@@ -48,7 +67,7 @@
   </div>
   <button class="btn-link back" onclick={onCancel}>cancel</button>
 {:else}
-  <h2>play with friends</h2>
+  <h2>multiplayer</h2>
 
   <input
     class="field name"
@@ -64,8 +83,22 @@
   <div class="cards">
     <div class="card surface">
       <div class="micro">start one</div>
-      <p>Make a private room, share with friends.</p>
-      <button class="btn btn-primary" onclick={onCreate}>create a room</button>
+      <!-- The toggle is above the button rather than inside a settings panel:
+           it changes what the button makes, so it has to be read first. -->
+      <div class="seg" role="group" aria-label="who can join">
+        <button class="opt" class:on={isPublic} onclick={() => (isPublic = true)}>
+          <Globe size={13} /> public
+        </button>
+        <button class="opt" class:on={!isPublic} onclick={() => (isPublic = false)}>
+          <Lock size={13} /> private
+        </button>
+      </div>
+      <p>
+        {isPublic
+          ? 'Listed below for anyone to join. You host, you set the rules.'
+          : 'Reachable only by its code. Share the link with friends.'}
+      </p>
+      <button class="btn btn-primary" onclick={() => onCreate(isPublic)}>create a room</button>
     </div>
 
     <div class="card surface">
@@ -92,6 +125,32 @@
   {#if error}
     <p class="err">{error}</p>
   {/if}
+
+  <div class="board">
+    <div class="micro head">
+      public rooms
+      {#if rooms.length}<span class="count num">{open.length} open</span>{/if}
+    </div>
+    {#if rooms.length}
+      {#each rooms as r (r.code)}
+        <button
+          class="row"
+          disabled={r.playing || r.members >= r.max}
+          onclick={() => onJoinCode(r.code)}
+        >
+          <span class="rcode num">{r.code}</span>
+          <span class="rhost">{r.host}</span>
+          <span class="rcfg num">{summary(r.cfg)}</span>
+          <span class="rsize num" class:full={r.members >= r.max}>{r.members}/{r.max}</span>
+          <span class="rstate">{r.playing ? 'in a run' : r.members >= r.max ? 'full' : 'join'}</span>
+        </button>
+      {/each}
+    {:else}
+      <p class="empty">
+        nobody is hosting right now — make one public and you are the first
+      </p>
+    {/if}
+  </div>
 
   <button class="btn-link back" onclick={onBack}>back</button>
 {/if}
@@ -122,7 +181,7 @@
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 12px;
-    margin-top: 40px;
+    margin-top: 32px;
     width: 100%;
     max-width: 560px;
   }
@@ -145,6 +204,34 @@
     width: 100%;
   }
 
+  .seg {
+    display: flex;
+    gap: 2px;
+    width: 100%;
+    padding: 2px;
+    border-radius: 8px;
+    background: var(--grid);
+  }
+  .opt {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    flex: 1;
+    height: 28px;
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--muted);
+    transition: background 140ms ease, color 140ms ease;
+  }
+  .opt:hover {
+    color: var(--text);
+  }
+  .opt.on {
+    background: var(--panel);
+    color: var(--accent);
+  }
+
   .joinrow {
     display: flex;
     gap: 8px;
@@ -163,6 +250,83 @@
     flex: none;
     width: auto;
     padding: 0 16px;
+  }
+
+  /* The board. Five columns that always line up, so scanning it is scanning
+     one column at a time — who, on what, how many — not five little cards. */
+  .board {
+    width: 100%;
+    max-width: 560px;
+    margin-top: 34px;
+  }
+  .head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+  .count {
+    color: var(--faint);
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  .row {
+    display: grid;
+    grid-template-columns: auto 1fr auto auto 3.2rem;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 9px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    color: var(--muted);
+    text-align: left;
+    transition: background 120ms ease, color 120ms ease;
+  }
+  .row:hover:not(:disabled) {
+    background: var(--panel);
+    color: var(--text);
+  }
+  .row:disabled {
+    cursor: default;
+    color: var(--faint);
+  }
+  .rcode {
+    letter-spacing: 0.14em;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .row:disabled .rcode {
+    color: var(--faint);
+  }
+  .rhost,
+  .rcfg {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .rcfg,
+  .rsize {
+    color: var(--faint);
+  }
+  .rsize.full {
+    color: var(--danger);
+  }
+  .rstate {
+    text-align: right;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
+  .row:hover:not(:disabled) .rstate {
+    color: var(--accent);
+  }
+  .empty {
+    margin: 0;
+    padding: 16px 0;
+    font-size: 13px;
+    color: var(--faint);
   }
 
   .waiting {
@@ -196,12 +360,18 @@
     margin: 16px 0 0;
   }
   .back {
-    margin-top: 22px;
+    margin-top: 26px;
   }
 
   @media (max-width: 560px) {
     .cards {
       grid-template-columns: 1fr;
+    }
+    .row {
+      grid-template-columns: auto 1fr auto;
+    }
+    .rcfg {
+      display: none;
     }
   }
 </style>

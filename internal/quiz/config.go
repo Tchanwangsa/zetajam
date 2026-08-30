@@ -20,6 +20,81 @@ var Forward = [2]string{"add", "mul"}
 // generator draws for one operation.
 type Range [4]int
 
+// The two shapes a run can take.
+//
+// Classic draws every question from one fixed pair of ranges — the ranges in
+// the config. Ramp ignores them and walks Tiers instead, so the run opens easy
+// and ends on the classic defaults.
+const (
+	ModeClassic = "classic"
+	ModeRamp    = "ramp"
+)
+
+// A Tier is one rung of the ramp: the ranges addition and multiplication draw
+// from while the run is on that rung. Subtraction and division read them
+// backwards exactly as they do in classic, so the answer stays a clean
+// positive integer at every difficulty.
+type Tier struct {
+	Add Range
+	Mul Range
+}
+
+// Tiers is the ramp, easiest first. The last rung is deliberately the classic
+// default: ramp is a way into the standard run, not past it.
+var Tiers = [...]Tier{
+	{Add: Range{2, 20, 2, 20}, Mul: Range{2, 5, 2, 20}},
+	{Add: Range{2, 80, 2, 80}, Mul: Range{2, 8, 2, 75}},
+	{Add: Range{2, 100, 2, 100}, Mul: Range{2, 12, 2, 100}},
+}
+
+// TierAt are the question counts at which the ramp steps up, expressed per
+// minute of the run so a 15s sprint ramps in the same shape as a 5-minute
+// grind rather than sitting on rung one the whole way.
+//
+// One entry per step offered. There are three here and three rungs, so the
+// last one only starts doing anything if a fourth rung is ever added.
+var TierAt = [...]int{2, 6, 12}
+
+// TierOf is the rung question i falls on.
+//
+// A pure function of the index and the clock, because the question stream has
+// to be one: the server checks answer i without replaying the questions before
+// it, and every client generates the same stream from the seed alone. Nothing
+// here may depend on how the run is actually going.
+//
+// The arithmetic is integer on both sides of the wire — see the TypeScript
+// mirror in web/src/lib/config.ts — so the rounding has to be spelled out
+// rather than left to a float.
+func TierOf(i, durSec int) int {
+	n := 0
+	for _, at := range TierAt {
+		s := (at*durSec + 30) / 60 // per-minute count, scaled to the run, rounded
+		if s < 1 {
+			s = 1
+		}
+		if i >= s {
+			n++
+		}
+	}
+	if n > len(Tiers)-1 {
+		n = len(Tiers) - 1
+	}
+	return n
+}
+
+// RangeFor is the range operation op draws from for question i — the config's
+// own in classic, the rung's in ramp.
+func (c Config) RangeFor(op string, i int) Range {
+	if c.Mode != ModeRamp {
+		return c.Ranges[op]
+	}
+	t := Tiers[TierOf(i, c.DurSec)]
+	if op == "add" || op == "sub" {
+		return t.Add
+	}
+	return t.Mul
+}
+
 // Config is the whole of what a player can configure: which operations appear,
 // how big their terms get, and how long the run lasts.
 //
@@ -28,6 +103,9 @@ type Range [4]int
 // than their own, so both sides of a match are provably generating the same
 // questions from the same seed.
 type Config struct {
+	// Classic or ramp. Empty means classic — an older client that has never
+	// heard of the field still gets the run it expects.
+	Mode   string           `json:"mode,omitempty"`
 	Ops    []string         `json:"ops"`
 	Ranges map[string]Range `json:"ranges"`
 	DurSec int              `json:"durSec"`
@@ -43,7 +121,8 @@ const (
 // multiplier, two minutes.
 func Default() Config {
 	return Config{
-		Ops: []string{"add", "sub", "mul", "div"},
+		Mode: ModeClassic,
+		Ops:  []string{"add", "sub", "mul", "div"},
 		Ranges: map[string]Range{
 			"add": {2, 100, 2, 100},
 			"sub": {2, 100, 2, 100},
@@ -65,7 +144,10 @@ func Default() Config {
 // agreed to. So sub takes add's range and div takes mul's, here, once.
 func (c Config) Normalize() Config {
 	def := Default()
-	out := Config{Ranges: map[string]Range{}, DurSec: c.DurSec}
+	out := Config{Mode: ModeClassic, Ranges: map[string]Range{}, DurSec: c.DurSec}
+	if c.Mode == ModeRamp {
+		out.Mode = ModeRamp
+	}
 
 	on := map[string]bool{}
 	for _, op := range c.Ops {
@@ -128,14 +210,24 @@ func clampTerm(v int) int {
 	return v
 }
 
-// Sig identifies a config for matchmaking. Two players only get paired when
-// their signatures match, so nobody is dropped into a run with operations or a
-// clock they did not ask for. Disabled operations are left out, so their
-// ranges cannot keep two otherwise-identical setups apart.
+// Sig identifies a config by what a run under it would actually be. It decides
+// whether a score counts toward the day's best, and on the client whether a
+// settings change is worth restarting a run for.
+//
+// Disabled operations are left out, so their ranges cannot keep two
+// otherwise-identical setups apart. A ramp run leaves the ranges out for the
+// same reason: it never reads them, so two ramp runs would otherwise differ
+// over numbers neither one would have used.
 func (c Config) Sig() string {
 	var b strings.Builder
+	b.WriteString(c.Mode)
+	b.WriteByte(':')
 	b.WriteString(strconv.Itoa(c.DurSec))
 	for _, op := range c.Ops {
+		if c.Mode == ModeRamp {
+			fmt.Fprintf(&b, "|%s", op)
+			continue
+		}
 		r := c.Ranges[op]
 		fmt.Fprintf(&b, "|%s:%d-%d,%d-%d", op, r[0], r[1], r[2], r[3])
 	}

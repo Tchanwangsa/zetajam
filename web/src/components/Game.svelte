@@ -1,11 +1,13 @@
 <script lang="ts">
   import { question, type Question } from '../lib/questions'
-  import type { Config } from '../lib/config'
+  import { tierOf, type Config } from '../lib/config'
   import type { Sample } from '../lib/series'
+  import type { Step } from '../lib/steps'
   import type { PlayerInfo } from '../lib/net'
   import { seats as buildSeats } from '../lib/players'
   import Graph from './Graph.svelte'
   import Scoreboard from './Scoreboard.svelte'
+  import TierMeter from './TierMeter.svelte'
 
   let {
     seed,
@@ -17,6 +19,7 @@
     scores = {},
     spectating = false,
     samples = $bindable([] as Sample[]),
+    steps = $bindable([] as Step[]),
     onAnswer,
     onExpire,
   }: {
@@ -31,6 +34,8 @@
     scores?: Record<string, number>
     spectating?: boolean
     samples?: Sample[]
+    /** Your own answers, in order. Empty while spectating — see lib/steps.ts. */
+    steps?: Step[]
     onAnswer: (i: number, v: number, ms: number) => void
     onExpire: () => void
   } = $props()
@@ -41,6 +46,12 @@
 
   let score = $state(0)
   let phase = $state<'count' | 'live' | 'done'>('count')
+
+  // The rung the next question comes off. Plain state rather than one of the
+  // hand-written nodes below, because it changes twice in a whole run — the
+  // hot path is for things that move on a keystroke.
+  let tier = $state(0)
+  const ramp = $derived(cfg.mode === 'ramp' && !spectating)
 
   // Your own score comes from your own keyboard, not from a round trip. The
   // others come in as `score` frames. A spectator has no keyboard in this run,
@@ -56,6 +67,7 @@
   let t0 = 0 // performance.now() at which questions go live
   let nextSampleAt = 0
   let lastTimerText = ''
+  let lastAt = 0 // ms into the run at which the previous answer landed
 
   function fmt(ms: number): string {
     const s = Math.max(0, Math.ceil(ms / 1000))
@@ -67,7 +79,10 @@
     cur = question(seed, 0, cfg)
     t0 = performance.now() + startsInMs
     nextSampleAt = 1000
+    lastAt = 0
     samples = [{ t: 0, s: players.map(() => 0) }]
+    steps = []
+    tier = 0
 
     let raf = requestAnimationFrame(function frame(now) {
       const ms = now - t0
@@ -131,12 +146,32 @@
     }
     if (v === '' || Number(v) !== cur.answer) return
 
-    onAnswer(idx, cur.answer, Math.round(performance.now() - t0))
+    const at = Math.round(performance.now() - t0)
+    onAnswer(idx, cur.answer, at)
+    // One array write per answer, alongside the one `score++` already costs —
+    // same order of magnitude as the 1Hz sampling, not a new one. What it buys
+    // is a graph that knows which question each of its steps was.
+    steps = [
+      ...steps,
+      {
+        i: idx,
+        t: at / 1000,
+        ms: at - lastAt,
+        text: cur.text,
+        answer: cur.answer,
+        tier: cfg.mode === 'ramp' ? tierOf(idx, cfg.durSec) : -1,
+      },
+    ]
+    lastAt = at
     score++
     idx++
     cur = question(seed, idx, cfg)
     qEl.textContent = cur.text
     inputEl.value = ''
+    if (cfg.mode === 'ramp') {
+      const t = tierOf(idx, cfg.durSec)
+      if (t !== tier) tier = t
+    }
   }
 </script>
 
@@ -144,6 +179,10 @@
 
 <section class="game">
   <Scoreboard seats={seatList} bind:clock={timerEl} solo={players.length === 1} />
+
+  {#if ramp}
+    <TierMeter {tier} />
+  {/if}
 
   {#if spectating}
     <div class="spectate-note">spectating — scores and pace only, not their screen</div>
@@ -163,7 +202,7 @@
   {/if}
 
   <div class="graph">
-    <Graph {samples} durSec={durMs / 1000} seats={seatList} dim={phase === 'live'} />
+    <Graph {samples} {steps} durSec={durMs / 1000} seats={seatList} dim={phase === 'live'} />
   </div>
 </section>
 

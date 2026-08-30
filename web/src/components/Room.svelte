@@ -2,6 +2,7 @@
   import type { RoomInfo } from '../lib/net'
   import { colorFor } from '../lib/players'
   import { roomLink } from '../lib/room'
+  import { Globe, Lock } from '@lucide/svelte'
 
   /**
    * The waiting room. Everything the host can do to the run — who is in it,
@@ -16,6 +17,7 @@
     onStart,
     onKick,
     onLeave,
+    onPublic,
   }: {
     room: RoomInfo
     selfId: string
@@ -23,6 +25,7 @@
     onStart: () => void
     onKick: (id: string) => void
     onLeave: () => void
+    onPublic: (isPublic: boolean) => void
   } = $props()
 
   const host = $derived(room.hostId === selfId)
@@ -73,11 +76,37 @@
     </button>
   </div>
 
+  <!-- Visibility is a live setting, not a decision you made once on the way
+       in: a room that filled up from the board can go private for the rematch,
+       and a private one can open its doors when the group is short a player.
+       The code never changes either way, so a link already sent still works. -->
+  {#if host}
+    <div class="vis seg" role="group" aria-label="who can join">
+      <button class="opt" class:on={room.public} onclick={() => onPublic(true)}>
+        <Globe size={13} /> public
+      </button>
+      <button class="opt" class:on={!room.public} onclick={() => onPublic(false)}>
+        <Lock size={13} /> private
+      </button>
+    </div>
+    <p class="vishint">
+      {room.public
+        ? 'listed on the multiplayer board — anyone can walk in'
+        : 'unlisted — only people with the code can join'}
+    </p>
+  {:else}
+    <p class="vishint tagged">
+      {#if room.public}<Globe size={12} /> public room{:else}<Lock size={12} /> private room{/if}
+    </p>
+  {/if}
+
   <div class="members">
     {#if room.members.length < 2}
       <div class="empty">
         <span class="pulse"></span>
-        waiting for players — send them the link
+        {room.public
+          ? 'waiting for players — the board is showing this room'
+          : 'waiting for players — send them the link'}
       </div>
     {/if}
 
@@ -148,13 +177,54 @@
     line-height: 1.1;
   }
 
+  .vis {
+    display: flex;
+    gap: 2px;
+    width: 220px;
+    max-width: 100%;
+    padding: 2px;
+    margin-top: 16px;
+    border-radius: 8px;
+    background: var(--grid);
+  }
+  .opt {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    flex: 1;
+    height: 28px;
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--muted);
+    transition: background 140ms ease, color 140ms ease;
+  }
+  .opt:hover {
+    color: var(--text);
+  }
+  .opt.on {
+    background: var(--panel);
+    color: var(--accent);
+  }
+  .vishint {
+    margin: 8px 0 0;
+    font-size: 12px;
+    color: var(--faint);
+  }
+  .vishint.tagged {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 14px;
+  }
+
   .members {
     display: flex;
     flex-direction: column;
     gap: 4px;
     width: 320px;
     max-width: 100%;
-    margin-top: 26px;
+    margin-top: 22px;
     min-height: 140px;
   }
   .empty {

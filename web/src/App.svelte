@@ -5,9 +5,11 @@
     type MatchResult,
     type Msg,
     type PlayerInfo,
+    type RoomBrief,
     type RoomInfo,
   } from './lib/net'
   import type { Sample } from './lib/series'
+  import type { Step } from './lib/steps'
   import { load, save, sig, type Config } from './lib/config'
   import { codeFromURL, setURL, validCode } from './lib/room'
   import Lobby from './components/Lobby.svelte'
@@ -28,7 +30,7 @@
     spectating: boolean
   }
 
-  type Phase = 'lobby' | 'mp' | 'queued' | 'room' | 'match' | 'over'
+  type Phase = 'lobby' | 'mp' | 'room' | 'match' | 'over'
 
   // A link straight into a room skips the lobby *and* the join form. Read
   // before any state exists, because it decides which screen the app opens on.
@@ -43,6 +45,9 @@
   let match = $state<Match | null>(null)
   let scores = $state<Record<string, number>>({})
   let samples = $state<Sample[]>([])
+  // Your own answers, kept out here so the results screen still has them after
+  // Game has been torn down. See lib/steps.ts.
+  let steps = $state<Step[]>([])
   let results = $state<MatchResult[]>([])
 
   let room = $state<RoomInfo | null>(null)
@@ -56,6 +61,7 @@
   let online = $state(0)
   let playing = $state(0)
   let games = $state<GameInfo[]>([])
+  let rooms = $state<RoomBrief[]>([])
   let best = $state<MatchResult | undefined>()
   let runKey = $state(0) // forces a fresh Game instance per match
 
@@ -63,6 +69,12 @@
   // server normalized and sent back — see lib/config.ts.
   let cfg = $state<Config>(load())
   $effect(() => save(cfg))
+
+  // Everything the bar and the name box hold is a preference, so all of it is
+  // written as it changes rather than at the moment it happens to be used. The
+  // name used to be saved only on the way into a run, which meant typing one
+  // and then reloading — or following a room link instead — lost it.
+  $effect(() => localStorage.setItem('zetajam.name', name))
 
   let theme = $state(localStorage.getItem('zetajam.theme') ?? 'system')
   $effect(() => {
@@ -92,11 +104,14 @@
         online = m.online ?? 0
         playing = m.playing ?? 0
         break
+      // A list the server has nothing to put in is dropped from the frame
+      // entirely rather than sent empty — `omitempty` again — so neither of
+      // these is safe to read straight through.
       case 'games':
-        games = m.games
+        games = m.games ?? []
         break
-      case 'queued':
-        phase = 'queued'
+      case 'rooms':
+        rooms = m.rooms ?? []
         break
       case 'match':
         match = {
@@ -110,6 +125,7 @@
         }
         scores = Object.fromEntries(match.players.map((p) => [p.id, 0]))
         samples = []
+        steps = []
         runKey++
         phase = 'match'
         break
@@ -128,7 +144,7 @@
         setURL(room.code)
         // Mid-match the room frame is just a roster update; the screen it
         // belongs to comes back when the run ends.
-        if (phase === 'lobby' || phase === 'mp' || phase === 'queued') phase = 'room'
+        if (phase === 'lobby' || phase === 'mp') phase = 'room'
         break
       case 'room.gone':
         room = null
@@ -148,10 +164,10 @@
     }
   }
 
-  function play(solo = false) {
-    localStorage.setItem('zetajam.name', name)
-    net.send({ t: 'join', name: name || 'guest', solo, cfg })
-    if (!solo) phase = 'queued'
+  // The only way into a run that does not go through a room. Everything with
+  // somebody else in it starts on the room screen now, where a host says go.
+  function solo() {
+    net.send({ t: 'solo', name: name || 'guest', cfg })
   }
 
   // A solo run is yours alone, so restarting it costs nobody anything. In a
@@ -165,11 +181,10 @@
   const canReset = $derived(soloRun || (phase === 'over' && !room))
 
   function reset() {
-    if (phase === 'over') play(match ? match.players.length <= 1 : true)
-    else if (soloRun) play(true)
+    if (phase === 'over' || soloRun) solo()
   }
 
-  // Walking out of a run, a countdown, a queue or a spectate. Where it puts you
+  // Walking out of a run, a countdown or a spectate. Where it puts you
   // is wherever you came in from: a room you are still a member of, otherwise
   // the lobby. The server ends the run for everyone still in it — same as
   // closing the tab — so this is offered plainly rather than hidden behind the
@@ -179,17 +194,15 @@
     phase = room ? 'room' : 'lobby'
   }
 
-  const canLeave = $derived(phase === 'match' || phase === 'queued')
+  const canLeave = $derived(phase === 'match')
   const leaveLabel = $derived(
-    phase === 'queued'
-      ? 'stop looking for a match'
-      : match?.spectating
-        ? 'stop watching'
-        : room
-          ? 'leave the run — back to the room'
-          : (match?.players.length ?? 0) > 1
-            ? 'leave the run — it ends for everyone'
-            : 'leave the run',
+    match?.spectating
+      ? 'stop watching'
+      : room
+        ? 'leave the run — back to the room'
+        : (match?.players.length ?? 0) > 1
+          ? 'leave the run — it ends for everyone'
+          : 'leave the run',
   )
 
   function goLobby() {
@@ -202,16 +215,23 @@
 
   // --- rooms ---------------------------------------------------------------
 
-  function createRoom() {
-    localStorage.setItem('zetajam.name', name)
-    net.send({ t: 'room.create', name: name || 'guest', cfg })
+  function createRoom(isPublic: boolean) {
+    net.send({ t: 'room.create', name: name || 'guest', public: isPublic, cfg })
   }
 
-  function joinRoom() {
-    if (!validCode(joinCode)) return
-    localStorage.setItem('zetajam.name', name)
-    joining = joinCode
-    net.send({ t: 'room.join', code: joinCode, name: name || 'guest' })
+  // Typed into the box, or clicked off the public board — the same join either
+  // way, so the row on the board fills the box in on its way past and a refused
+  // one leaves the code there to look at.
+  function joinRoom(code = joinCode) {
+    if (!validCode(code)) return
+    joinCode = code
+    joining = code
+    net.send({ t: 'room.join', code, name: name || 'guest' })
+  }
+
+  // Listing or unlisting the room you host. The server checks the host too.
+  function setPublic(isPublic: boolean) {
+    net.send({ t: 'room.public', public: isPublic })
   }
 
   // Renaming from inside a room. A deep link never shows the lobby's name
@@ -219,7 +239,6 @@
   // somebody other than `guest`.
   function rename(next: string) {
     name = next
-    localStorage.setItem('zetajam.name', name)
     net.send({ t: 'room.name', name: name || 'guest' })
   }
 
@@ -265,10 +284,9 @@
     const changed = sig(next) !== sig(cfg)
     cfg = next
     if (!changed) return
-    // New settings only reach a run at join time. A solo run can just be
-    // restarted under them, and a queue can be re-entered on the new signature.
-    if (soloRun) play(true)
-    else if (phase === 'queued') play(false)
+    // New settings only reach a run when one starts, so a solo run is simply
+    // restarted under them. A room takes the host's config, handled above.
+    if (soloRun) solo()
   }
 
   function answer(i: number, v: number, ms: number) {
@@ -299,8 +317,8 @@
     if (t?.closest('input, [role="dialog"]')) return
     if (phase === 'over') {
       if (room) phase = 'room'
-      else play(match ? match.players.length <= 1 : true)
-    } else if (phase === 'lobby') play()
+      else solo()
+    } else if (phase === 'lobby') phase = 'mp'
   }
 </script>
 
@@ -319,12 +337,12 @@
       {/if}
       {#if canReset}
         <button class="btn-icon" title="restart (same settings)" aria-label="restart" onclick={reset}>
-          <RotateCw size={12}/>
+          <RotateCw size={16} />
         </button>
       {/if}
       {#if canLeave}
         <button class="btn-icon leave" title={leaveLabel} aria-label={leaveLabel} onclick={leaveMatch}>
-          <LogOut size={12} />
+          <LogOut size={16} />
         </button>
       {/if}
       <button
@@ -334,11 +352,11 @@
         onclick={() => (theme = theme === 'system' ? 'light' : theme === 'light' ? 'dark' : 'system')}
       >
         {#if theme === 'system'}
-          <Monitor size={12} />
+          <Monitor size={16} />
         {:else if theme === 'light'}
-          <Sun size={12} />
+          <Sun size={16} />
         {:else}
-          <Moon size={12} />
+          <Moon size={16} />
         {/if}
       </button>
     </div>
@@ -349,26 +367,25 @@
   </div>
 
   <main>
-    {#if phase === 'lobby' || phase === 'queued'}
+    {#if phase === 'lobby'}
       <Lobby
         bind:name
         {games}
         {best}
-        queued={phase === 'queued'}
-        onPlay={() => play(false)}
-        onSolo={() => play(true)}
-        onFriends={() => ((roomErr = ''), (phase = 'mp'))}
-        onCancel={() => play(true)}
+        onMulti={() => ((roomErr = ''), (phase = 'mp'))}
+        onSolo={solo}
         onSpectate={(id) => net.send({ t: 'spectate', id })}
       />
     {:else if phase === 'mp'}
       <Multiplayer
         bind:name
         bind:code={joinCode}
+        {rooms}
         error={roomErr}
         {joining}
         onCreate={createRoom}
-        onJoin={joinRoom}
+        onJoin={() => joinRoom()}
+        onJoinCode={joinRoom}
         onCancel={() => (joining = '')}
         onBack={() => (phase = 'lobby')}
       />
@@ -379,6 +396,7 @@
         onRename={rename}
         onStart={() => net.send({ t: 'room.start' })}
         onKick={(id) => net.send({ t: 'room.kick', id })}
+        onPublic={setPublic}
         onLeave={() => ((phase = 'lobby'), leaveRoom())}
       />
     {:else if phase === 'match' && match}
@@ -393,6 +411,7 @@
           {scores}
           spectating={match.spectating}
           bind:samples
+          bind:steps
           onAnswer={answer}
           onExpire={expire}
         />
@@ -403,9 +422,12 @@
         {selfId}
         players={match.players}
         {samples}
+        {steps}
+        seed={match.seed}
+        cfg={match.cfg}
         durMs={match.durMs}
         inRoom={!!room}
-        onAgain={() => play(match ? match.players.length <= 1 : true)}
+        onAgain={solo}
         onRoom={() => (phase = 'room')}
         onLobby={goLobby}
       />
@@ -415,35 +437,37 @@
 
 <style>
   .shell {
-    max-width: 820px;
+    max-width: 1536px;
     min-height: 100vh;
     margin: 0 auto;
-    padding: 0 24px 40px;
+    padding: 0 96px 40px;
     display: flex;
     flex-direction: column;
   }
+  /* The wordmark is the title now — the lobby no longer carries one — so the
+     header has to be big enough to be that rather than a strip of chrome. */
   header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    height: 60px;
+    height: 88px;
     flex: none;
   }
   .brand {
-    font-size: 14px;
+    font-size: 26px;
     font-weight: 600;
-    letter-spacing: -0.01em;
-    color: var(--muted);
+    letter-spacing: -0.03em;
+    color: var(--text);
     padding: 0;
     transition: color 140ms ease;
   }
   .brand:hover {
-    color: var(--text);
+    color: var(--accent);
   }
   .right {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 14px;
   }
   .stat {
     display: flex;
@@ -452,14 +476,14 @@
 
   .stat,
   .off {
-    font-size: 12px;
+    font-size: 13px;
     color: var(--faint);
   }
   .off {
     color: var(--danger);
   }
   .theme {
-    font-size: 13px;
+    font-size: 14px;
   }
   .leave:hover {
     color: var(--danger);
@@ -473,6 +497,7 @@
     flex: none;
     padding-bottom: 18px;
   }
+
 
   main {
     flex: 1;

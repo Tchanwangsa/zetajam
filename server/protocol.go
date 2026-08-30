@@ -10,11 +10,11 @@ import "zetajam/internal/quiz"
 // frames each way, whether it is two players or eight.
 
 type inbound struct {
-	T    string `json:"t"`
-	Name string `json:"name,omitempty"`
-	Solo bool   `json:"solo,omitempty"`
-	ID   string `json:"id,omitempty"`   // spectate target, or kick target
-	Code string `json:"code,omitempty"` // room code
+	T      string `json:"t"`
+	Name   string `json:"name,omitempty"`
+	ID     string `json:"id,omitempty"`     // spectate target, or kick target
+	Code   string `json:"code,omitempty"`   // room code
+	Public bool   `json:"public,omitempty"` // room.create, room.public
 
 	// The settings the player wants. Nil means "whatever the server runs by
 	// default". Never trusted as sent — the hub normalizes it first.
@@ -46,12 +46,26 @@ type gameInfo struct {
 	Scores []int    `json:"scores"`
 }
 
-// roomInfo is the whole of a private room: who is in it, who runs it, and what
-// it is set to. Sent in full on every change — it is a handful of names.
+// roomInfo is the whole of a room: who is in it, who runs it, what it is set
+// to, and whether the world can see it. Sent in full on every change — it is a
+// handful of names.
 type roomInfo struct {
 	Code    string       `json:"code"`
 	HostID  string       `json:"hostId"`
 	Members []playerInfo `json:"members"`
+	Cfg     *quiz.Config `json:"cfg"`
+	Public  bool         `json:"public"`
+}
+
+// roomBrief is one row of the public-room list: enough to decide whether to
+// walk in, and nothing more. Private rooms never appear in it — the code is
+// the only way to find one of those.
+type roomBrief struct {
+	Code    string       `json:"code"`
+	Host    string       `json:"host"`
+	Members int          `json:"members"`
+	Max     int          `json:"max"`
+	Playing bool         `json:"playing"`
 	Cfg     *quiz.Config `json:"cfg"`
 }
 
@@ -84,6 +98,9 @@ type outbound struct {
 
 	// room
 	Room *roomInfo `json:"room,omitempty"`
+
+	// rooms — the public list, sent to everyone whenever it changes
+	Rooms []roomBrief `json:"rooms,omitempty"`
 
 	// games / best / err
 	Games []gameInfo `json:"games,omitempty"`

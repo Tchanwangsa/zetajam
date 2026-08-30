@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"log"
+	"sort"
 	"sync"
 	"time"
 
@@ -37,7 +38,6 @@ type Client struct {
 	match     *Match
 	room      *Room
 	spectates *Match
-	queued    bool
 	score     int
 	flagged   bool
 	answers   []answer
@@ -59,20 +59,25 @@ type Match struct {
 	done    bool
 }
 
-// Room is a private lobby. It outlives the matches played in it, so a group
-// can run again without swapping codes.
+// Room is a lobby. It outlives the matches played in it, so a group can run
+// again without swapping codes.
+//
+// public is the only difference between "find a match" and "play with
+// friends": a public room is listed for anyone to walk into, a private one is
+// reachable only by its code. Either way the host owns the settings and says
+// when the run starts, so there is one screen and one set of rules for both.
 type Room struct {
 	code    string
 	host    *Client
 	members []*Client
 	cfg     quiz.Config
 	match   *Match
+	public  bool
 }
 
 type Hub struct {
 	mu      sync.Mutex
 	clients map[*Client]bool
-	queue   []*Client
 	matches map[string]*Match
 	rooms   map[string]*Room
 	best    result
@@ -134,12 +139,12 @@ func (h *Hub) add(c *Client) {
 	c.push(msg)
 	h.broadcastPresence()
 	h.broadcastGames()
+	h.broadcastRooms()
 }
 
 func (h *Hub) remove(c *Client) {
 	h.mu.Lock()
 	delete(h.clients, c)
-	h.dequeueLocked(c)
 	h.unwatchLocked(c)
 	m := c.match
 	room, roomFrame, gone := h.leaveRoomLocked(c)
@@ -153,28 +158,31 @@ func (h *Hub) remove(c *Client) {
 	}
 	h.broadcastPresence()
 	h.broadcastGames()
+	h.broadcastRooms()
 }
 
-// --- matchmaking ----------------------------------------------------------
+// --- solo runs ------------------------------------------------------------
 
-func (h *Hub) join(c *Client, name string, solo bool, cfg *quiz.Config) {
+// solo starts a run of one. It is the only way into a match that does not go
+// through a room: everything with somebody else in it is a room now, public or
+// private, and the host of that room decides when it starts.
+func (h *Hub) solo(c *Client, name string, cfg *quiz.Config) {
 	conf := h.def
 	if cfg != nil {
 		conf = cfg.Normalize()
 	}
 
-	// Restarting is the common case for `join`, not the rare one: the ↻ button
-	// and the results screen both land here while the previous run may still be
+	// Restarting is the common case here, not the rare one: the ↻ button and
+	// the results screen both land here while the previous run may still be
 	// open. A solo run is yours alone, so end it and start again. A run with
 	// other people in it is not, so leave it be — `match.leave` is the way out
 	// of one of those, and it says out loud what it costs everyone else.
 	//
 	// Everything else you were in is dropped without ceremony. Asking for a new
-	// game is the same statement as leaving the old one, and a client that is
-	// queued, in a room and watching somebody else's duel all at once is a
-	// state no screen can draw.
+	// game is the same statement as leaving the old one, and a client that is in
+	// a room and watching somebody else's duel at the same time is a state no
+	// screen can draw.
 	h.mu.Lock()
-	h.dequeueLocked(c)
 	prev := c.match
 	if prev != nil && len(prev.players) > 1 {
 		h.mu.Unlock()
@@ -189,74 +197,20 @@ func (h *Hub) join(c *Client, name string, solo bool, cfg *quiz.Config) {
 		h.finish(prev, c) // clears c.match; c is the leaver, so it gets no `end`
 	}
 
-	if name == "" {
-		name = "guest"
-	}
-	if len(name) > 20 {
-		name = name[:20]
-	}
-
 	h.mu.Lock()
-	c.name = name
+	c.name = clampName(name)
 	c.cfg = conf
 	c.score, c.flagged, c.answers = 0, false, nil
 	if c.match != nil {
 		h.mu.Unlock()
 		return
 	}
-	if solo {
-		m := h.startMatchLocked([]*Client{c}, conf, nil)
-		h.mu.Unlock()
-		h.announce(m)
-		h.broadcastGames()
-		return
-	}
-
-	// Only pair players whose settings agree. Adopting one side's config
-	// would drop the other into operations or a clock they never chose, and
-	// the score would not mean the same thing on both screens.
-	sig := conf.Sig()
-	var opp *Client
-	for i := 0; i < len(h.queue); i++ {
-		cand := h.queue[i]
-		if !h.clients[cand] || cand.match != nil {
-			cand.queued = false
-			h.queue = append(h.queue[:i], h.queue[i+1:]...)
-			i--
-			continue
-		}
-		if cand.cfg.Sig() == sig {
-			cand.queued = false
-			h.queue = append(h.queue[:i], h.queue[i+1:]...)
-			opp = cand
-			break
-		}
-	}
-	if opp == nil {
-		c.queued = true
-		h.queue = append(h.queue, c)
-		h.mu.Unlock()
-		c.push(outbound{T: "queued"})
-		return
-	}
-	m := h.startMatchLocked([]*Client{opp, c}, conf, nil)
+	m := h.startMatchLocked([]*Client{c}, conf, nil)
 	h.mu.Unlock()
 
 	h.announce(m)
 	h.broadcastGames()
-}
-
-func (h *Hub) dequeueLocked(c *Client) {
-	if !c.queued {
-		return
-	}
-	c.queued = false
-	for i, q := range h.queue {
-		if q == c {
-			h.queue = append(h.queue[:i], h.queue[i+1:]...)
-			return
-		}
-	}
+	h.broadcastRooms() // walking into a solo run may have emptied a public room
 }
 
 // unwatchLocked stops c spectating whatever it was spectating. Watching is the
@@ -341,7 +295,7 @@ func (h *Hub) roomFrameLocked(r *Room) (outbound, []*Client) {
 		members = append(members, playerInfo{ID: c.id, Name: c.name})
 	}
 	cfg := r.cfg
-	info := &roomInfo{Code: r.code, Members: members, Cfg: &cfg}
+	info := &roomInfo{Code: r.code, Members: members, Cfg: &cfg, Public: r.public}
 	if r.host != nil {
 		info.HostID = r.host.id
 	}
@@ -384,21 +338,20 @@ func clampName(name string) string {
 	return name
 }
 
-func (h *Hub) roomCreate(c *Client, name string, cfg *quiz.Config) {
+func (h *Hub) roomCreate(c *Client, name string, public bool, cfg *quiz.Config) {
 	conf := h.def
 	if cfg != nil {
 		conf = cfg.Normalize()
 	}
 
 	h.mu.Lock()
-	h.dequeueLocked(c)
 	h.unwatchLocked(c)
 	prev := c.match
 	_, oldFrame, oldTo := h.leaveRoomLocked(c)
 	c.name = clampName(name)
 	c.cfg = conf
 
-	r := &Room{code: h.newCodeLocked(), host: c, members: []*Client{c}, cfg: conf}
+	r := &Room{code: h.newCodeLocked(), host: c, members: []*Client{c}, cfg: conf, public: public}
 	h.rooms[r.code] = r
 	c.room = r
 	frame, to := h.roomFrameLocked(r)
@@ -409,6 +362,25 @@ func (h *Hub) roomCreate(c *Client, name string, cfg *quiz.Config) {
 	if prev != nil {
 		h.finish(prev, c)
 	}
+	h.broadcastRooms()
+}
+
+// roomPublic lists or unlists a room. The code keeps working either way: going
+// private takes the room off the board, it does not lock the door on somebody
+// already holding the link.
+func (h *Hub) roomPublic(c *Client, public bool) {
+	h.mu.Lock()
+	r := c.room
+	if r == nil || r.host != c || r.public == public {
+		h.mu.Unlock()
+		return
+	}
+	r.public = public
+	frame, to := h.roomFrameLocked(r)
+	h.mu.Unlock()
+
+	pushAll(to, frame)
+	h.broadcastRooms()
 }
 
 func (h *Hub) roomJoin(c *Client, code, name string) {
@@ -435,7 +407,6 @@ func (h *Hub) roomJoin(c *Client, code, name string) {
 		pushAll(to, frame)
 		return
 	}
-	h.dequeueLocked(c)
 	h.unwatchLocked(c)
 	// Only now, past every way this join could still be refused: walking into a
 	// room means walking out of whatever you were playing, but not if you were
@@ -454,6 +425,7 @@ func (h *Hub) roomJoin(c *Client, code, name string) {
 	if prev != nil {
 		h.finish(prev, c)
 	}
+	h.broadcastRooms()
 }
 
 func (h *Hub) roomLeave(c *Client) {
@@ -461,6 +433,7 @@ func (h *Hub) roomLeave(c *Client) {
 	_, frame, to := h.leaveRoomLocked(c)
 	h.mu.Unlock()
 	pushAll(to, frame)
+	h.broadcastRooms()
 }
 
 func (h *Hub) roomCfg(c *Client, cfg *quiz.Config) {
@@ -482,6 +455,7 @@ func (h *Hub) roomCfg(c *Client, cfg *quiz.Config) {
 	frame, to := h.roomFrameLocked(r)
 	h.mu.Unlock()
 	pushAll(to, frame)
+	h.broadcastRooms() // the list shows what each room is set to
 }
 
 // roomName is renaming yourself from inside a room. A deep link drops you
@@ -498,6 +472,7 @@ func (h *Hub) roomName(c *Client, name string) {
 	frame, to := h.roomFrameLocked(r)
 	h.mu.Unlock()
 	pushAll(to, frame)
+	h.broadcastRooms() // the list is headed by the host's name
 }
 
 func (h *Hub) roomKick(c *Client, id string) {
@@ -523,6 +498,7 @@ func (h *Hub) roomKick(c *Client, id string) {
 
 	target.push(outbound{T: "room.gone", Msg: "the host removed you from the room"})
 	pushAll(to, frame)
+	h.broadcastRooms()
 }
 
 // endStaleSolo closes any solo run still open on a member of c's room. Each is
@@ -586,6 +562,7 @@ func (h *Hub) roomStart(c *Client) {
 
 	h.announce(m)
 	h.broadcastGames()
+	h.broadcastRooms() // the room is mid-run now, and the list says so
 }
 
 // --- gameplay -------------------------------------------------------------
@@ -647,17 +624,13 @@ func (h *Hub) onAnswer(c *Client, in inbound) {
 // finish() sends puts it back on the room screen with everybody else.
 func (h *Hub) matchLeave(c *Client) {
 	h.mu.Lock()
-	h.dequeueLocked(c)
 	h.unwatchLocked(c)
 	m := c.match
 	h.mu.Unlock()
 
 	if m != nil {
 		h.finish(m, c)
-		return
 	}
-	// Nothing to end, but leaving the queue changes what the lobby should say.
-	h.broadcastPresence()
 }
 
 // finish ends a match once. leaver, if set, is the client that walked away and
@@ -676,9 +649,9 @@ func (h *Hub) finish(m *Match, leaver *Client) {
 
 	results := make([]result, 0, len(m.players))
 	var notify []*Client
-	// A private room is its own scoreboard; only open matchmaking, on the
-	// standard settings, gets to touch the day's best.
-	eligible := m.room == nil && len(m.players) > 1 && m.cfg.Sig() == h.def.Sig()
+	// A private room is its own scoreboard; only a public room, on the standard
+	// settings, with somebody to play against, gets to touch the day's best.
+	eligible := m.room != nil && m.room.public && len(m.players) > 1 && m.cfg.Sig() == h.def.Sig()
 	for _, c := range m.players {
 		results = append(results, result{ID: c.id, Name: c.name, Score: c.score, Flagged: c.flagged})
 		if eligible && !c.flagged && c.score > h.best.Score {
@@ -708,6 +681,7 @@ func (h *Hub) finish(m *Match, leaver *Client) {
 	pushAll(notify, msg)
 	pushAll(roomTo, roomFrame)
 	h.broadcastGames()
+	h.broadcastRooms() // the room is open again
 	h.broadcastPresence()
 }
 
@@ -719,7 +693,6 @@ func (h *Hub) spectate(c *Client, id string) {
 		c.push(outbound{T: "err", Msg: "that game is over"})
 		return
 	}
-	h.dequeueLocked(c)
 	h.unwatchLocked(c)
 	_, oldFrame, oldTo := h.leaveRoomLocked(c)
 	m.specs[c] = true
@@ -745,6 +718,7 @@ func (h *Hub) spectate(c *Client, id string) {
 	for _, s := range scores {
 		c.push(s)
 	}
+	h.broadcastRooms()
 }
 
 // --- presence -------------------------------------------------------------
@@ -760,6 +734,44 @@ func (h *Hub) broadcastPresence() {
 		}
 	}
 	msg := outbound{T: "online", Online: len(all), Playing: playing}
+	h.mu.Unlock()
+
+	pushAll(all, msg)
+}
+
+// broadcastRooms sends everyone the public board. A room that is mid-run stays
+// on it, marked, rather than blinking out and back: a list that empties itself
+// the moment a game starts reads as "nobody is here", which is the opposite of
+// what it means.
+func (h *Hub) broadcastRooms() {
+	h.mu.Lock()
+	rooms := make([]roomBrief, 0, len(h.rooms))
+	for _, r := range h.rooms {
+		if !r.public || len(r.members) == 0 {
+			continue
+		}
+		cfg := r.cfg
+		b := roomBrief{
+			Code:    r.code,
+			Members: len(r.members),
+			Max:     maxRoomSize,
+			Playing: r.match != nil && !r.match.done,
+			Cfg:     &cfg,
+		}
+		if r.host != nil {
+			b.Host = r.host.name
+		}
+		rooms = append(rooms, b)
+	}
+	// Map order is not an order. Sorted by code, the board holds still while
+	// you are reading it and a room stays where you last saw it.
+	sort.Slice(rooms, func(i, j int) bool { return rooms[i].Code < rooms[j].Code })
+
+	all := make([]*Client, 0, len(h.clients))
+	for c := range h.clients {
+		all = append(all, c)
+	}
+	msg := outbound{T: "rooms", Rooms: rooms}
 	h.mu.Unlock()
 
 	pushAll(all, msg)
@@ -796,8 +808,8 @@ func (h *Hub) handle(c *Client, raw []byte) {
 		return
 	}
 	switch in.T {
-	case "join":
-		h.join(c, in.Name, in.Solo, in.Cfg)
+	case "solo":
+		h.solo(c, in.Name, in.Cfg)
 	case "answer":
 		h.onAnswer(c, in)
 	case "spectate":
@@ -805,7 +817,7 @@ func (h *Hub) handle(c *Client, raw []byte) {
 	case "match.leave":
 		h.matchLeave(c)
 	case "room.create":
-		h.roomCreate(c, in.Name, in.Cfg)
+		h.roomCreate(c, in.Name, in.Public, in.Cfg)
 	case "room.join":
 		h.roomJoin(c, in.Code, in.Name)
 	case "room.leave":
@@ -814,6 +826,8 @@ func (h *Hub) handle(c *Client, raw []byte) {
 		h.roomName(c, in.Name)
 	case "room.cfg":
 		h.roomCfg(c, in.Cfg)
+	case "room.public":
+		h.roomPublic(c, in.Public)
 	case "room.kick":
 		h.roomKick(c, in.ID)
 	case "room.start":
