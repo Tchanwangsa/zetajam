@@ -140,10 +140,7 @@ func (h *Hub) remove(c *Client) {
 	h.mu.Lock()
 	delete(h.clients, c)
 	h.dequeueLocked(c)
-	if m := c.spectates; m != nil {
-		delete(m.specs, c)
-		c.spectates = nil
-	}
+	h.unwatchLocked(c)
 	m := c.match
 	room, roomFrame, gone := h.leaveRoomLocked(c)
 	h.mu.Unlock()
@@ -169,15 +166,26 @@ func (h *Hub) join(c *Client, name string, solo bool, cfg *quiz.Config) {
 	// Restarting is the common case for `join`, not the rare one: the ↻ button
 	// and the results screen both land here while the previous run may still be
 	// open. A solo run is yours alone, so end it and start again. A run with
-	// other people in it is not, so leave it be.
+	// other people in it is not, so leave it be — `match.leave` is the way out
+	// of one of those, and it says out loud what it costs everyone else.
+	//
+	// Everything else you were in is dropped without ceremony. Asking for a new
+	// game is the same statement as leaving the old one, and a client that is
+	// queued, in a room and watching somebody else's duel all at once is a
+	// state no screen can draw.
 	h.mu.Lock()
 	h.dequeueLocked(c)
 	prev := c.match
+	if prev != nil && len(prev.players) > 1 {
+		h.mu.Unlock()
+		return
+	}
+	h.unwatchLocked(c)
+	_, oldFrame, oldTo := h.leaveRoomLocked(c)
 	h.mu.Unlock()
+
+	pushAll(oldTo, oldFrame)
 	if prev != nil {
-		if len(prev.players) > 1 {
-			return
-		}
 		h.finish(prev, c) // clears c.match; c is the leaver, so it gets no `end`
 	}
 
@@ -248,6 +256,16 @@ func (h *Hub) dequeueLocked(c *Client) {
 			h.queue = append(h.queue[:i], h.queue[i+1:]...)
 			return
 		}
+	}
+}
+
+// unwatchLocked stops c spectating whatever it was spectating. Watching is the
+// one thing you can be doing that nobody else can see, so it leaves no trace
+// behind and nothing to broadcast.
+func (h *Hub) unwatchLocked(c *Client) {
+	if m := c.spectates; m != nil {
+		delete(m.specs, c)
+		c.spectates = nil
 	}
 }
 
@@ -374,6 +392,8 @@ func (h *Hub) roomCreate(c *Client, name string, cfg *quiz.Config) {
 
 	h.mu.Lock()
 	h.dequeueLocked(c)
+	h.unwatchLocked(c)
+	prev := c.match
 	_, oldFrame, oldTo := h.leaveRoomLocked(c)
 	c.name = clampName(name)
 	c.cfg = conf
@@ -386,6 +406,9 @@ func (h *Hub) roomCreate(c *Client, name string, cfg *quiz.Config) {
 
 	pushAll(oldTo, oldFrame)
 	pushAll(to, frame)
+	if prev != nil {
+		h.finish(prev, c)
+	}
 }
 
 func (h *Hub) roomJoin(c *Client, code, name string) {
@@ -413,6 +436,11 @@ func (h *Hub) roomJoin(c *Client, code, name string) {
 		return
 	}
 	h.dequeueLocked(c)
+	h.unwatchLocked(c)
+	// Only now, past every way this join could still be refused: walking into a
+	// room means walking out of whatever you were playing, but not if you were
+	// turned away at the door.
+	prev := c.match
 	_, oldFrame, oldTo := h.leaveRoomLocked(c)
 	c.name = clampName(name)
 	c.room = r
@@ -423,6 +451,9 @@ func (h *Hub) roomJoin(c *Client, code, name string) {
 
 	pushAll(oldTo, oldFrame)
 	pushAll(to, frame)
+	if prev != nil {
+		h.finish(prev, c)
+	}
 }
 
 func (h *Hub) roomLeave(c *Client) {
@@ -447,6 +478,22 @@ func (h *Hub) roomCfg(c *Client, cfg *quiz.Config) {
 	r.cfg = conf
 	for _, m := range r.members {
 		m.cfg = conf
+	}
+	frame, to := h.roomFrameLocked(r)
+	h.mu.Unlock()
+	pushAll(to, frame)
+}
+
+// roomName is renaming yourself from inside a room. A deep link drops you
+// straight into one without ever showing you the lobby's name field, so this is
+// the only place some players get to say who they are.
+func (h *Hub) roomName(c *Client, name string) {
+	h.mu.Lock()
+	c.name = clampName(name)
+	r := c.room
+	if r == nil {
+		h.mu.Unlock()
+		return
 	}
 	frame, to := h.roomFrameLocked(r)
 	h.mu.Unlock()
@@ -589,6 +636,30 @@ func (h *Hub) onAnswer(c *Client, in inbound) {
 	pushAll(targets, msg)
 }
 
+// matchLeave is walking out of a run on purpose: the ✕ in the header, mid-match
+// or mid-countdown or still in the queue. It is deliberately the same event as
+// closing the tab — the run ends for everyone in it — because a half-empty
+// board racing a clock nobody is left to beat is not a game, and the graph is
+// drawn from a roster fixed when the run started.
+//
+// The one difference from a disconnect is that this client is still here
+// afterwards, and stays in whatever room it walked in from; the room frame
+// finish() sends puts it back on the room screen with everybody else.
+func (h *Hub) matchLeave(c *Client) {
+	h.mu.Lock()
+	h.dequeueLocked(c)
+	h.unwatchLocked(c)
+	m := c.match
+	h.mu.Unlock()
+
+	if m != nil {
+		h.finish(m, c)
+		return
+	}
+	// Nothing to end, but leaving the queue changes what the lobby should say.
+	h.broadcastPresence()
+}
+
 // finish ends a match once. leaver, if set, is the client that walked away and
 // therefore does not need telling.
 func (h *Hub) finish(m *Match, leaver *Client) {
@@ -648,9 +719,9 @@ func (h *Hub) spectate(c *Client, id string) {
 		c.push(outbound{T: "err", Msg: "that game is over"})
 		return
 	}
-	if prev := c.spectates; prev != nil {
-		delete(prev.specs, c)
-	}
+	h.dequeueLocked(c)
+	h.unwatchLocked(c)
+	_, oldFrame, oldTo := h.leaveRoomLocked(c)
 	m.specs[c] = true
 	c.spectates = m
 
@@ -669,6 +740,7 @@ func (h *Hub) spectate(c *Client, id string) {
 	}
 	h.mu.Unlock()
 
+	pushAll(oldTo, oldFrame)
 	c.push(msg)
 	for _, s := range scores {
 		c.push(s)
@@ -730,12 +802,16 @@ func (h *Hub) handle(c *Client, raw []byte) {
 		h.onAnswer(c, in)
 	case "spectate":
 		h.spectate(c, in.ID)
+	case "match.leave":
+		h.matchLeave(c)
 	case "room.create":
 		h.roomCreate(c, in.Name, in.Cfg)
 	case "room.join":
 		h.roomJoin(c, in.Code, in.Name)
 	case "room.leave":
 		h.roomLeave(c)
+	case "room.name":
+		h.roomName(c, in.Name)
 	case "room.cfg":
 		h.roomCfg(c, in.Cfg)
 	case "room.kick":

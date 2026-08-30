@@ -11,31 +11,43 @@
     name = $bindable(''),
     code = $bindable(''),
     error = '',
+    joining = '',
     onCreate,
     onJoin,
+    onCancel,
     onBack,
   }: {
     name?: string
     code?: string
     error?: string
+    /** A code we have asked to join and not yet heard back about. */
+    joining?: string
     onCreate: () => void
     onJoin: () => void
+    onCancel: () => void
     onBack: () => void
   } = $props()
 
   let nameEl = $state<HTMLInputElement>()
-  let codeEl = $state<HTMLInputElement>()
 
-  // Arriving on a link means the code is already known and the name is not.
   $effect(() => {
-    if (code) nameEl?.focus()
-    else nameEl?.focus()
+    if (!joining) nameEl?.focus()
   })
 
   const ready = $derived(validCode(code))
 </script>
 
 <section class="mp">
+{#if joining}
+  <!-- Following a room link is the join. This screen exists only for the round
+       trip that confirms it, so it says which room and offers the way out. -->
+  <h2>joining {joining}</h2>
+  <div class="waiting">
+    <span class="pulse"></span>
+    knocking on the door
+  </div>
+  <button class="btn-link back" onclick={onCancel}>cancel</button>
+{:else}
   <h2>play with friends</h2>
 
   <input
@@ -62,7 +74,6 @@
       <div class="joinrow">
         <input
           class="field code num"
-          bind:this={codeEl}
           value={code}
           oninput={(e) => (code = cleanCode(e.currentTarget.value))}
           onkeydown={(e) => e.key === 'Enter' && ready && onJoin()}
@@ -83,6 +94,7 @@
   {/if}
 
   <button class="btn-link back" onclick={onBack}>back</button>
+{/if}
 </section>
 
 <style>
@@ -151,6 +163,31 @@
     flex: none;
     width: auto;
     padding: 0 16px;
+  }
+
+  .waiting {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--muted);
+    font-size: 15px;
+    margin-top: 8px;
+  }
+  .pulse {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+    animation: breathe 1.6s ease-in-out infinite;
+  }
+  @keyframes breathe {
+    0%,
+    100% {
+      opacity: 0.25;
+    }
+    50% {
+      opacity: 1;
+    }
   }
 
   .err {

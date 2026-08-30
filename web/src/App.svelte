@@ -16,7 +16,7 @@
   import Game from './components/Game.svelte'
   import Results from './components/Results.svelte'
   import ConfigBar from './components/ConfigBar.svelte'
-  import { Monitor, Moon, RotateCw, Sun } from '@lucide/svelte';
+  import { LogOut, Monitor, Moon, RotateCw, Sun } from '@lucide/svelte';
 
   interface Match {
     seed: number
@@ -30,14 +30,15 @@
 
   type Phase = 'lobby' | 'mp' | 'queued' | 'room' | 'match' | 'over'
 
-  // A link straight into a room skips the lobby. Read before any state exists,
-  // because it decides which screen the app opens on.
+  // A link straight into a room skips the lobby *and* the join form. Read
+  // before any state exists, because it decides which screen the app opens on.
   const deepLink = codeFromURL()
 
   let phase = $state<Phase>(deepLink ? 'mp' : 'lobby')
   let connected = $state(false)
   let selfId = $state('')
-  let name = $state(localStorage.getItem('zetajam.name') ?? '')
+  const savedName = localStorage.getItem('zetajam.name') ?? ''
+  let name = $state(savedName)
 
   let match = $state<Match | null>(null)
   let scores = $state<Record<string, number>>({})
@@ -47,6 +48,10 @@
   let room = $state<RoomInfo | null>(null)
   let joinCode = $state(deepLink)
   let roomErr = $state('')
+  // The code of a join in flight. Only ever set between sending `room.join`
+  // and hearing back, which is also exactly the window the screen has nothing
+  // true to show — so it doubles as "show the waiting state".
+  let joining = $state(deepLink)
 
   let online = $state(0)
   let playing = $state(0)
@@ -67,6 +72,11 @@
   })
 
   const net = new Net(onMsg, (up) => (connected = up))
+
+  // A room link is an instruction, not a suggestion. Prefilling the code and
+  // waiting for a click asked for the click twice: following the link was the
+  // first one. Sent before the socket is up — Net buffers until it opens.
+  if (deepLink) net.send({ t: 'room.join', code: deepLink, name: savedName || 'guest' })
 
   function onMsg(m: Msg) {
     switch (m.t) {
@@ -114,6 +124,7 @@
       case 'room':
         room = m.room
         roomErr = ''
+        joining = ''
         setURL(room.code)
         // Mid-match the room frame is just a roster update; the screen it
         // belongs to comes back when the run ends.
@@ -122,12 +133,17 @@
       case 'room.gone':
         room = null
         roomErr = m.msg
-        joinCode = ''
+        // A refused join leaves its code in the box to be fixed or retried —
+        // the whole point of a code you can read out loud. Being kicked out of
+        // a room you were already in leaves nothing to retry.
+        joinCode = joining
+        joining = ''
         setURL(null)
         if (phase !== 'match') phase = 'mp'
         break
       case 'err':
         roomErr = m.msg
+        joining = ''
         break
     }
   }
@@ -139,10 +155,12 @@
   }
 
   // A solo run is yours alone, so restarting it costs nobody anything. In a
-  // versus match the button is not offered — leaving mid-run would end it for
-  // everyone else too, and that is what the brand link is for.
+  // versus match the button is not offered — leaving mid-run ends it for
+  // everyone else too, and that is what ✕ is for. A run of one started from a
+  // room is not solo in this sense either: restarting it would walk you out of
+  // the room the others are sitting in.
   const soloRun = $derived(
-    phase === 'match' && !!match && !match.spectating && match.players.length <= 1,
+    phase === 'match' && !!match && !match.spectating && match.players.length <= 1 && !room,
   )
   const canReset = $derived(soloRun || (phase === 'over' && !room))
 
@@ -151,8 +169,34 @@
     else if (soloRun) play(true)
   }
 
+  // Walking out of a run, a countdown, a queue or a spectate. Where it puts you
+  // is wherever you came in from: a room you are still a member of, otherwise
+  // the lobby. The server ends the run for everyone still in it — same as
+  // closing the tab — so this is offered plainly rather than hidden behind the
+  // brand link, where people found it by accident.
+  function leaveMatch() {
+    net.send({ t: 'match.leave' })
+    phase = room ? 'room' : 'lobby'
+  }
+
+  const canLeave = $derived(phase === 'match' || phase === 'queued')
+  const leaveLabel = $derived(
+    phase === 'queued'
+      ? 'stop looking for a match'
+      : match?.spectating
+        ? 'stop watching'
+        : room
+          ? 'leave the run — back to the room'
+          : (match?.players.length ?? 0) > 1
+            ? 'leave the run — it ends for everyone'
+            : 'leave the run',
+  )
+
   function goLobby() {
+    // Room first: once you are out of it, ending the run cannot bounce a room
+    // frame back at you and land you on the room screen you just left.
     if (room) leaveRoom()
+    if (canLeave) net.send({ t: 'match.leave' })
     phase = 'lobby'
   }
 
@@ -166,13 +210,24 @@
   function joinRoom() {
     if (!validCode(joinCode)) return
     localStorage.setItem('zetajam.name', name)
+    joining = joinCode
     net.send({ t: 'room.join', code: joinCode, name: name || 'guest' })
+  }
+
+  // Renaming from inside a room. A deep link never shows the lobby's name
+  // field, so for anyone who arrived on a link this is the first chance to be
+  // somebody other than `guest`.
+  function rename(next: string) {
+    name = next
+    localStorage.setItem('zetajam.name', name)
+    net.send({ t: 'room.name', name: name || 'guest' })
   }
 
   function leaveRoom() {
     net.send({ t: 'room.leave' })
     room = null
     joinCode = ''
+    joining = ''
     setURL(null)
   }
 
@@ -267,6 +322,11 @@
           <RotateCw size={12}/>
         </button>
       {/if}
+      {#if canLeave}
+        <button class="btn-icon leave" title={leaveLabel} aria-label={leaveLabel} onclick={leaveMatch}>
+          <LogOut size={12} />
+        </button>
+      {/if}
       <button
         class="btn-icon theme"
         title="theme"
@@ -306,14 +366,17 @@
         bind:name
         bind:code={joinCode}
         error={roomErr}
+        {joining}
         onCreate={createRoom}
         onJoin={joinRoom}
+        onCancel={() => (joining = '')}
         onBack={() => (phase = 'lobby')}
       />
     {:else if phase === 'room' && room}
       <Room
         {room}
         {selfId}
+        onRename={rename}
         onStart={() => net.send({ t: 'room.start' })}
         onKick={(id) => net.send({ t: 'room.kick', id })}
         onLeave={() => ((phase = 'lobby'), leaveRoom())}
@@ -397,6 +460,9 @@
   }
   .theme {
     font-size: 13px;
+  }
+  .leave:hover {
+    color: var(--danger);
   }
 
   /* The settings live here on every screen, which is the whole point of them

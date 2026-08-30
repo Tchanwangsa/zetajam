@@ -12,12 +12,14 @@
   let {
     room,
     selfId,
+    onRename,
     onStart,
     onKick,
     onLeave,
   }: {
     room: RoomInfo
     selfId: string
+    onRename: (name: string) => void
     onStart: () => void
     onKick: (id: string) => void
     onLeave: () => void
@@ -29,6 +31,26 @@
 
   let copied = $state(false)
   let copyTimer: ReturnType<typeof setTimeout> | undefined
+
+  // Your own row is the name field. Anyone who arrived on a link went straight
+  // past the lobby's, so without this they are `guest` for the whole evening —
+  // and it reads as what it is, the line with your name on it.
+  const you = $derived(room.members.find((m) => m.id === selfId))
+
+  // Written to by hand rather than bound. A room frame arrives every time
+  // anyone joins, leaves or changes a setting, and a bound value would wipe
+  // half-typed text on every one of them.
+  let nameEl = $state<HTMLInputElement>()
+  $effect(() => {
+    const server = you?.name ?? ''
+    if (nameEl && document.activeElement !== nameEl) nameEl.value = server
+  })
+
+  function rename(next: string) {
+    const clean = next.trim().slice(0, 20)
+    if (clean && clean !== you?.name) onRename(clean)
+    else if (nameEl) nameEl.value = you?.name ?? '' // blanked, or unchanged
+  }
 
   async function copy() {
     try {
@@ -62,7 +84,21 @@
     {#each room.members as m, i (m.id)}
       <div class="member" class:you={m.id === selfId}>
         <span class="dot" style:background={colorFor(i, youIndex)}></span>
-        <span class="who">{m.name}</span>
+        {#if m.id === selfId}
+          <input
+            class="who mine"
+            bind:this={nameEl}
+            placeholder="your name"
+            maxlength="20"
+            autocomplete="off"
+            spellcheck="false"
+            aria-label="your name"
+            onblur={(e) => rename(e.currentTarget.value)}
+            onkeydown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+          />
+        {:else}
+          <span class="who">{m.name}</span>
+        {/if}
         {#if m.id === room.hostId}<span class="badge">host</span>{/if}
         {#if m.id === selfId}<span class="badge you-badge">you</span>{/if}
         {#if host && m.id !== selfId}
@@ -166,9 +202,30 @@
   }
   .who {
     flex: 1;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  /* Looks like the text beside it until you go near it — the row is a roster
+     first and a form second. */
+  .who.mine {
+    font: inherit;
+    color: inherit;
+    background: none;
+    border: none;
+    border-bottom: 1px dashed transparent;
+    border-radius: 0;
+    padding: 0;
+    height: auto;
+    outline: none;
+    transition: border-color 140ms ease;
+  }
+  .who.mine:hover {
+    border-bottom-color: var(--line);
+  }
+  .who.mine:focus {
+    border-bottom-color: var(--accent);
   }
   .badge {
     font-size: 10px;
