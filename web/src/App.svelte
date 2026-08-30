@@ -19,6 +19,7 @@
   import Game from './components/Game.svelte'
   import Results from './components/Results.svelte'
   import ConfigBar from './components/ConfigBar.svelte'
+  import Mark from './components/Mark.svelte'
   import { LogOut, Monitor, Moon, RotateCw, Sun } from '@lucide/svelte';
 
   interface Match {
@@ -335,7 +336,10 @@
 
 <div class="shell">
   <header>
-    <button class="brand" onclick={goLobby}>zetajam</button>
+    <button class="brand" onclick={goLobby}>
+      <Mark size={30} />
+      zetajam
+    </button>
     <div class="right num">
       {#if !connected}
         <span class="off">reconnecting…</span>
@@ -467,7 +471,12 @@
     height: 88px;
     flex: none;
   }
+  /* The mark is `currentColor` throughout, so it goes accent on hover with the
+     word rather than needing a rule of its own. */
   .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
     font-size: 26px;
     font-weight: 600;
     letter-spacing: -0.03em;
