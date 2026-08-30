@@ -32,13 +32,13 @@ jobs:
       # needs no new IAM. Override with the GCP_AR_REPO variable to use another.
       AR_REPO: ${{ vars.GCP_AR_REPO || 'cloud-run-source-deploy' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Two ways in, whichever secret you populated. Prefer the first —
       # federation means no long-lived key sitting in GitHub.
       #   GCP_WORKLOAD_IDENTITY_PROVIDER + GCP_SERVICE_ACCOUNT
       #   GCP_SA_KEY  (a service account JSON key)
-      - uses: google-github-actions/auth@v2
+      - uses: google-github-actions/auth@v3
         with:
           project_id: ${{ vars.GCP_PROJECT_ID }}
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
@@ -46,7 +46,7 @@ jobs:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
       # No setup-gcloud step: ubuntu-latest already ships the Google Cloud CLI,
-      # and auth@v2 exports CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE, which that
+      # and auth@v3 exports CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE, which that
       # gcloud reads on its own. The action was 21s spent installing a second
       # copy of a tool already on the box.
 
@@ -87,10 +87,10 @@ jobs:
 
       # The default builder uses the docker driver, which cannot export a cache
       # at all. This one is the docker-container driver, which can.
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
 
       - name: build and push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: true
