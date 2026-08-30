@@ -100,12 +100,17 @@ check: parity web
 ## this process's memory, so a second instance means two players can land on
 ## different machines and never see each other, and a cold start drops every
 ## open socket. Websockets need the timeout raised from the 5-minute default.
+##
+## IMAGE is how CI hands in an image it built and pushed itself. Without it
+## this still deploys --source, which is what you want by hand: no registry to
+## push to and no docker daemon needed. The flags below stay in one place
+## either way, which is the whole point of deploying through make.
 SERVICE ?= zetajam
 REGION  ?= australia-southeast1
 
 deploy:
 	gcloud run deploy $(SERVICE) \
-		--source . \
+		$(if $(IMAGE),--image $(IMAGE),--source .) \
 		--region $(REGION) \
 		--allow-unauthenticated \
 		--min-instances 1 \

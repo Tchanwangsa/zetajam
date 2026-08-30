@@ -18,6 +18,7 @@ env:
   GO_VERSION_FILE: go.mod
   NODE_VERSION: '22'
   PNPM_VERSION: '10'
+  VERCEL_VERSION: '59.10.0'
 
 jobs:
   check:
@@ -58,58 +59,17 @@ jobs:
         run: make build
 
   cloud-run:
-    name: deploy server (cloud run)
+    # The steps live in deploy-server.yml because the manual deploy button in
+    # deploy.yml runs the same ones, and two copies of a build is how one of
+    # them ends up a version behind.
+    name: deploy server
     needs: check
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
-    runs-on: ubuntu-latest
-    environment: production
     permissions:
       contents: read
-      id-token: write # workload identity federation mints its token from this
-    steps:
-      - uses: actions/checkout@v4
-
-      # Two ways in, whichever secret you populated. Prefer the first —
-      # federation means no long-lived key sitting in GitHub.
-      #   GCP_WORKLOAD_IDENTITY_PROVIDER + GCP_SERVICE_ACCOUNT
-      #   GCP_SA_KEY  (a service account JSON key)
-      - uses: google-github-actions/auth@v2
-        with:
-          project_id: ${{ vars.GCP_PROJECT_ID }}
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
-
-      - uses: google-github-actions/setup-gcloud@v2
-
-      # `make deploy` owns the flags, not this file — --min-instances 1
-      # --max-instances 1 because matches live in one process's memory, and
-      # --timeout 3600 because the default five minutes cuts a websocket off
-      # mid-match. Duplicating them here is how they'd fall out of sync.
-      - name: deploy
-        env:
-          CLOUDSDK_CORE_PROJECT: ${{ vars.GCP_PROJECT_ID }}
-          # gcloud takes the default answer instead of hanging on the prompt it
-          # raises the first time it has to create an Artifact Registry repo.
-          CLOUDSDK_CORE_DISABLE_PROMPTS: '1'
-        run: |
-          make deploy \
-            SERVICE='${{ vars.GCP_SERVICE || 'zetajam' }}' \
-            REGION='${{ vars.GCP_REGION || 'australia-southeast1' }}' \
-            ORIGINS='${{ vars.ORIGINS }}'
-
-      # /health, not /healthz — Google's edge answers that path itself on
-      # *.run.app and a live service would look dead.
-      - name: smoke test
-        env:
-          CLOUDSDK_CORE_PROJECT: ${{ vars.GCP_PROJECT_ID }}
-        run: |
-          url=$(gcloud run services describe '${{ vars.GCP_SERVICE || 'zetajam' }}' \
-            --region '${{ vars.GCP_REGION || 'australia-southeast1' }}' \
-            --format='value(status.url)')
-          echo "service: $url"
-          curl -fsS --retry 5 --retry-delay 3 --retry-all-errors "$url/health"
-          echo "- server: $url" >> "$GITHUB_STEP_SUMMARY"
+      id-token: write # the called workflow federates with this
+    secrets: inherit
+    uses: ./.github/workflows/deploy-server.yml
 
   vercel:
     name: deploy page (vercel)
@@ -135,7 +95,10 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      - run: npm install -g vercel@latest
+      # Pinned, not @latest. The CLI ships breaking changes on its own
+      # schedule, and @latest turns one of those into a deploy that fails on a
+      # commit which touched nothing. Bump it on purpose, in this file.
+      - run: npm install -g vercel@${{ env.VERCEL_VERSION }}
 
       # Run from web/, which is what `vercel link` was pointed at — the .vercel
       # directory lives there and the project's root is that directory, not the

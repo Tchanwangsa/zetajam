@@ -1,0 +1,136 @@
+# The server half of a deploy. It lives here because ci.yml and deploy.yml both
+# need it, and a build that only one of them has is a build that drifts — the
+# same reason `make deploy` owns the gcloud flags instead of the workflows.
+#
+# The image is built on the runner rather than by Cloud Build from `--source .`.
+# Cloud Build keeps no layer cache between runs, so every deploy re-ran the pnpm
+# install, the vite build and `go build` from scratch: a flat ~1m50s no matter
+# what the commit touched. Buildx against the Actions cache reuses every layer
+# above the files that actually changed, so a server-only commit skips the whole
+# web stage, and a web-only commit skips `go mod download`.
+name: deploy server
+
+on:
+  workflow_call:
+
+jobs:
+  cloud-run:
+    name: cloud run
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write # workload identity federation mints its token from this
+    env:
+      PROJECT: ${{ vars.GCP_PROJECT_ID }}
+      SERVICE: ${{ vars.GCP_SERVICE || 'zetajam' }}
+      REGION: ${{ vars.GCP_REGION || 'australia-southeast1' }}
+      # cloud-run-source-deploy is the repo `--source .` created on our behalf,
+      # and it is deliberately the one we keep pushing to: it already exists in
+      # the deploy region, and the deploy service account already holds
+      # artifactregistry.writer on it — so moving the build onto the runner
+      # needs no new IAM. Override with the GCP_AR_REPO variable to use another.
+      AR_REPO: ${{ vars.GCP_AR_REPO || 'cloud-run-source-deploy' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Two ways in, whichever secret you populated. Prefer the first —
+      # federation means no long-lived key sitting in GitHub.
+      #   GCP_WORKLOAD_IDENTITY_PROVIDER + GCP_SERVICE_ACCOUNT
+      #   GCP_SA_KEY  (a service account JSON key)
+      - uses: google-github-actions/auth@v2
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      # No setup-gcloud step: ubuntu-latest already ships the Google Cloud CLI,
+      # and auth@v2 exports CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE, which that
+      # gcloud reads on its own. The action was 21s spent installing a second
+      # copy of a tool already on the box.
+
+      # `--source .` created the registry repo as a side effect, so on this
+      # project the describe already succeeds and the create never runs. It is
+      # here for a fresh project — and it needs artifactregistry.admin, which
+      # the deployer does not have, so it says so rather than failing on a
+      # bare permission error a long way from the cause.
+      - name: ensure the registry repo exists
+        env:
+          CLOUDSDK_CORE_PROJECT: ${{ vars.GCP_PROJECT_ID }}
+          CLOUDSDK_CORE_DISABLE_PROMPTS: '1'
+        run: |
+          set -euo pipefail
+          if ! gcloud artifacts repositories describe "$AR_REPO" \
+                 --location "$REGION" >/dev/null 2>&1; then
+            echo "creating docker repository $AR_REPO in $REGION"
+            gcloud artifacts repositories create "$AR_REPO" \
+              --repository-format=docker \
+              --location "$REGION" \
+              --description='zetajam server images' || {
+                echo "could not create $AR_REPO in $REGION."
+                echo "the deploy service account needs roles/artifactregistry.admin"
+                echo "to create one, or point vars.GCP_AR_REPO at a repo that exists."
+                exit 1
+              }
+          fi
+          gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+
+      # Tagged by commit, not :latest — a Cloud Run revision that pins a moving
+      # tag is a revision you cannot roll back to with any confidence.
+      - name: image ref
+        id: image
+        run: |
+          set -euo pipefail
+          echo "ref=${REGION}-docker.pkg.dev/${PROJECT}/${AR_REPO}/${SERVICE}:${GITHUB_SHA}" \
+            >> "$GITHUB_OUTPUT"
+
+      # The default builder uses the docker driver, which cannot export a cache
+      # at all. This one is the docker-container driver, which can.
+      - uses: docker/setup-buildx-action@v3
+
+      - name: build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.image.outputs.ref }}
+          # Cloud Run is amd64. The runner is too, so this costs nothing today
+          # and stops a move to arm runners from shipping an image the service
+          # cannot start.
+          platforms: linux/amd64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # Without this buildx pushes an image index with an attestation
+          # manifest beside the image, and Cloud Run wants a plain
+          # single-platform manifest.
+          provenance: false
+
+      # `make deploy` still owns the flags — --min-instances 1 --max-instances 1
+      # because matches live in one process's memory, --timeout 3600 because the
+      # default five minutes cuts a websocket off mid-match. All this hands over
+      # is the image it should roll out instead of a source upload.
+      - name: deploy
+        env:
+          CLOUDSDK_CORE_PROJECT: ${{ vars.GCP_PROJECT_ID }}
+          CLOUDSDK_CORE_DISABLE_PROMPTS: '1'
+        run: |
+          make deploy \
+            IMAGE='${{ steps.image.outputs.ref }}' \
+            SERVICE="$SERVICE" \
+            REGION="$REGION" \
+            ORIGINS='${{ vars.ORIGINS }}'
+
+      # /health, not /healthz — Google's edge answers that path itself on
+      # *.run.app and a live service would look dead.
+      - name: smoke test
+        env:
+          CLOUDSDK_CORE_PROJECT: ${{ vars.GCP_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          url=$(gcloud run services describe "$SERVICE" \
+            --region "$REGION" \
+            --format='value(status.url)')
+          echo "service: $url"
+          curl -fsS --retry 5 --retry-delay 3 --retry-all-errors "$url/health"
+          echo "- server: $url" >> "$GITHUB_STEP_SUMMARY"
