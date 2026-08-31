@@ -188,7 +188,9 @@
   }
 
   .eq {
-    font-size: clamp(2.6rem, 8vw, 4.4rem);
+    /* Sized off whichever axis is scarcer: on a phone held sideways 8vw is
+       65px of equation, and it pushes the answer box below the fold. */
+    font-size: clamp(2.6rem, min(8vw, 13vh), 4.4rem);
     font-weight: 600;
     letter-spacing: -0.03em;
     line-height: 1.1;
@@ -256,6 +258,18 @@
       width: 170px;
       height: 56px;
       font-size: 26px;
+    }
+  }
+
+  /* Landscape. The air around the question is measured in vh already, but at
+     375px of it there is none to spare — the box you type in has to be on
+     screen without scrolling for the run to be playable at all. */
+  @media (max-height: 520px) {
+    .eq {
+      margin: 3vh 0 2vh;
+    }
+    .graph {
+      padding-top: 3vh;
     }
   }
 </style>

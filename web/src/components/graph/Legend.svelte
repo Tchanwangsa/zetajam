@@ -46,4 +46,16 @@
   .unit {
     color: var(--g-tick);
   }
+
+  /* Over the plot there is room for one line of key. A phone with four players
+     needs three, and they come down on the lines they are naming — so on a
+     narrow screen the key leaves the plot and sits under it instead. */
+  @media (max-width: 560px) {
+    .legend {
+      position: static;
+      justify-content: center;
+      max-width: 100%;
+      margin-top: 8px;
+    }
+  }
 </style>

@@ -37,10 +37,14 @@
   .head {
     display: flex;
     align-items: center;
+    /* Label, code and button in that order down a narrow screen — the code is
+       the thing being read out loud, so it keeps its line either way. */
+    flex-wrap: wrap;
+    justify-content: center;
     gap: 12px;
   }
   .code {
-    font-size: 2.2rem;
+    font-size: clamp(1.8rem, 8vw, 2.2rem);
     font-weight: 600;
     letter-spacing: 0.14em;
     line-height: 1.1;

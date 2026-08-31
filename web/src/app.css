@@ -188,6 +188,13 @@ input {
   opacity: 0.4;
   cursor: default;
 }
+/* A finger has no cursor to aim with, so the target grows rather than the
+   glyph — same header, same row of icons, twice the area to hit. */
+@media (pointer: coarse) {
+  .btn-icon {
+    padding: 8px;
+  }
+}
 
 /* An underlined word doing the work of a button. */
 .btn-link {

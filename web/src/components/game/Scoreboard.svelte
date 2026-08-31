@@ -115,4 +115,18 @@
   .chip.mine {
     border-color: color-mix(in srgb, var(--dot) 45%, transparent);
   }
+
+  /* Two three-digit scores and a clock between them is a wide line for a
+     phone, and the clock is the half that must not be pushed off centre. */
+  @media (max-width: 520px) {
+    .hud {
+      gap: 8px;
+    }
+    .val {
+      font-size: 24px;
+    }
+    .val.sm {
+      font-size: 18px;
+    }
+  }
 </style>

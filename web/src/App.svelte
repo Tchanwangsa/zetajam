@@ -90,7 +90,6 @@
     link={client.link}
     online={client.online}
     playing={client.playing}
-    lobby={client.phase === 'lobby'}
     canReset={client.canReset}
     canLeave={client.canLeave}
     spectating={!!client.match?.spectating}
@@ -162,11 +161,18 @@
 </div>
 
 <style>
+  /* The gutter is most of the layout on a phone: 96px either side leaves a
+     375px screen 183px to draw in. It scales with the viewport instead — 18px
+     on a phone, 53px on a tablet, and the full 96px from 1245px up, so nothing
+     about the desktop layout this was drawn for moves. dvh after vh so the
+     shell is not a scroll taller than the screen once a mobile URL bar has
+     taken its cut. */
   .shell {
     max-width: 1536px;
     min-height: 100vh;
+    min-height: 100dvh;
     margin: 0 auto;
-    padding: 0 96px 40px;
+    padding: 0 clamp(16px, 9vw - 16px, 96px) 40px;
     display: flex;
     flex-direction: column;
   }

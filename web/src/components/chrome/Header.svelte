@@ -16,8 +16,6 @@
     link = 'ok',
     online = 0,
     playing = 0,
-    /** The lobby is the one screen with room for both numbers. */
-    lobby = false,
     canReset = false,
     canLeave = false,
     spectating = false,
@@ -30,7 +28,6 @@
     link?: 'ok' | 'down' | 'paused'
     online?: number
     playing?: number
-    lobby?: boolean
     canReset?: boolean
     canLeave?: boolean
     spectating?: boolean
@@ -63,10 +60,13 @@
       <span class="idle note">paused — click anywhere</span>
     {:else if link === 'down'}
       <span class="off note">reconnecting…</span>
-    {:else if !lobby}
-      <span class="stat note">{online} online</span>
     {:else}
-      <span class="stat note">{online} online · {playing} playing</span>
+      <span class="stat note">
+        <span>{online} online</span>
+        <!-- The second number is the first thing to go when the icons and the
+             wordmark have taken the line. -->
+        <span class="also">· {playing} playing</span>
+      </span>
     {/if}
     {#if canReset}
       <button class="btn-icon" title="restart (same settings)" aria-label="restart" onclick={onReset}>
@@ -89,7 +89,9 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    height: 88px;
+    gap: 12px;
+    /* 88px of title is right on a laptop and a quarter of a phone screen. */
+    height: clamp(58px, 11vw, 88px);
     flex: none;
   }
   /* The mark is `currentColor` throughout, so it goes accent on hover with the
@@ -97,8 +99,9 @@
   .brand {
     display: flex;
     align-items: center;
-    gap: 10px;
-    font-size: 26px;
+    flex: none;
+    gap: clamp(7px, 2vw, 10px);
+    font-size: clamp(20px, 5.4vw, 26px);
     font-weight: 600;
     letter-spacing: -0.03em;
     color: var(--text);
@@ -111,7 +114,10 @@
   .right {
     display: flex;
     align-items: center;
-    gap: 14px;
+    /* Shrinkable, and the count inside it is what gives: an icon that has
+       walked off the right edge is a control nobody has. */
+    min-width: 0;
+    gap: clamp(9px, 3vw, 14px);
   }
   /* All three are the quiet line the rest of the app calls `.note`, one size up. */
   .stat,
@@ -122,6 +128,10 @@
   .stat {
     display: flex;
     align-items: center;
+    gap: 5px;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
   }
   .off {
     color: var(--danger);
@@ -132,5 +142,21 @@
   }
   .leave:hover {
     color: var(--danger);
+  }
+
+  /* Below this the wordmark, both numbers and three icons stop fitting on one
+     line, and the line is what the header is. */
+  @media (max-width: 480px) {
+    .also {
+      display: none;
+    }
+  }
+
+  /* A phone on its side has 375px of height for a whole run in. The title is
+     the first thing that can afford to hand some of it back. */
+  @media (max-height: 520px) {
+    header {
+      height: 56px;
+    }
   }
 </style>

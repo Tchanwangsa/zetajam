@@ -37,6 +37,8 @@
   .actions {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
+    justify-content: center;
     gap: 10px;
     margin-top: 24px;
   }

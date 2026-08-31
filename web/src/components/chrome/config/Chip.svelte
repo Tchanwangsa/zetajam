@@ -81,4 +81,12 @@
       padding: 0 8px;
     }
   }
+
+  /* The bar is settings you change mid-run; on a phone that is a thumb over a
+     28px pill. The pill grows, the type does not. */
+  @media (pointer: coarse) {
+    .item {
+      height: 34px;
+    }
+  }
 </style>

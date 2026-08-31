@@ -77,47 +77,54 @@
         {#if ramp}
           <!-- A ramp run draws off its own line — see the table below. -->
         {:else if FORWARD.includes(op)}
+          <!-- Each bracketed term is one box, so a row too wide for the panel
+               breaks at the operator between them rather than leaving a
+               closing paren stranded on a line of its own. -->
           <div class="range num">
             <span class="lead">Range:</span>
-            <span class="paren">(</span>
-            <NumField
-              value={cfg.ranges[op][0]}
-              onCommit={(v) => setTerm(op, 0, v)}
-              max={MAX_TERM}
-              width={54}
-              label="{OP_NAME[op]} first term, low"
-              {disabled}
-            />
-            <span class="to">to</span>
-            <NumField
-              value={cfg.ranges[op][1]}
-              onCommit={(v) => setTerm(op, 1, v)}
-              max={MAX_TERM}
-              width={54}
-              label="{OP_NAME[op]} first term, high"
-              {disabled}
-            />
-            <span class="paren">)</span>
+            <span class="term">
+              <span class="paren">(</span>
+              <NumField
+                value={cfg.ranges[op][0]}
+                onCommit={(v) => setTerm(op, 0, v)}
+                max={MAX_TERM}
+                width={54}
+                label="{OP_NAME[op]} first term, low"
+                {disabled}
+              />
+              <span class="to">to</span>
+              <NumField
+                value={cfg.ranges[op][1]}
+                onCommit={(v) => setTerm(op, 1, v)}
+                max={MAX_TERM}
+                width={54}
+                label="{OP_NAME[op]} first term, high"
+                {disabled}
+              />
+              <span class="paren">)</span>
+            </span>
             <span class="glyph-sm">{GLYPH[op]}</span>
-            <span class="paren">(</span>
-            <NumField
-              value={cfg.ranges[op][2]}
-              onCommit={(v) => setTerm(op, 2, v)}
-              max={MAX_TERM}
-              width={54}
-              label="{OP_NAME[op]} second term, low"
-              {disabled}
-            />
-            <span class="to">to</span>
-            <NumField
-              value={cfg.ranges[op][3]}
-              onCommit={(v) => setTerm(op, 3, v)}
-              max={MAX_TERM}
-              width={54}
-              label="{OP_NAME[op]} second term, high"
-              {disabled}
-            />
-            <span class="paren">)</span>
+            <span class="term">
+              <span class="paren">(</span>
+              <NumField
+                value={cfg.ranges[op][2]}
+                onCommit={(v) => setTerm(op, 2, v)}
+                max={MAX_TERM}
+                width={54}
+                label="{OP_NAME[op]} second term, low"
+                {disabled}
+              />
+              <span class="to">to</span>
+              <NumField
+                value={cfg.ranges[op][3]}
+                onCommit={(v) => setTerm(op, 3, v)}
+                max={MAX_TERM}
+                width={54}
+                label="{OP_NAME[op]} second term, high"
+                {disabled}
+              />
+              <span class="paren">)</span>
+            </span>
           </div>
         {:else if from}
           <p class="derived">{OP_NAME[from]} problems in reverse.</p>
@@ -205,6 +212,11 @@
   }
   .lead {
     margin-right: 2px;
+  }
+  .term {
+    display: flex;
+    align-items: center;
+    gap: 4px;
   }
   .paren {
     color: var(--faint);
