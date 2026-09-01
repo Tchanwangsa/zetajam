@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Client } from './lib/client.svelte'
   import { setRunContext } from './lib/run-context.svelte'
+  import { pageView } from './lib/analytics'
   import Header from './components/chrome/Header.svelte'
   import IdleGuard from './components/chrome/IdleGuard.svelte'
   import SettingsBar from './components/chrome/SettingsBar.svelte'
@@ -57,6 +58,14 @@
       return client.slots
     },
   })
+
+  /**
+   * Every screen lives at the same address, so a report keyed on the URL is one
+   * page with the whole app on it. The screen is reported as the page instead —
+   * see lib/analytics.ts. Runs on mount for the first view, and again only when
+   * that name changes — a roster update or a score landing is not a page view.
+   */
+  $effect(() => pageView(client.screen))
 
   // The pointers are for people who have never seen the settings bar. Once
   // you have started a run, an arrow at it every time is nagging.

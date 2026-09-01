@@ -4,8 +4,6 @@
  * kept because a static host without a rewrite rule 404s on the path.
  */
 
-import { pageView } from './analytics'
-
 export const CODE_LEN = 4
 const CODE_RE = /^[A-HJ-NP-Z2-9]{4}$/
 
@@ -42,7 +40,5 @@ export function setURL(code: string | null) {
   const next = code ? `/r/${code}` : '/'
   if (location.pathname !== next || location.search) {
     history.replaceState(null, '', next)
-    // The one place the address changes, so the one place a view is reported.
-    pageView()
   }
 }

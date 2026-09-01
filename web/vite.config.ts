@@ -84,7 +84,8 @@ function analytics(): Plugin {
                 `window.dataLayer=window.dataLayer||[];` +
                 `function gtag(){dataLayer.push(arguments)}` +
                 // send_page_view off: lib/analytics.ts reports views itself,
-                // with the room code stripped out of the address first.
+                // one per screen rather than one per address — the app has a
+                // handful of screens and only two addresses.
                 `gtag('js',new Date());` +
                 `gtag('config','${GA_ID}',{send_page_view:false})`,
               injectTo: 'head' as const,

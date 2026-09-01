@@ -15,6 +15,7 @@ import { question } from './questions'
 import { load, normalize, save, sig, type Config } from './config'
 import { fetchLobby } from './lobby'
 import { codeFromURL, setURL, validCode } from './room'
+import type { Screen } from './analytics'
 
 /** Everything a run is, as the server handed it over. */
 export interface Match {
@@ -193,6 +194,23 @@ export class Client {
   readonly canReset = $derived(this.soloRun || (this.phase === 'over' && !this.room))
   readonly canLeave = $derived(this.phase === 'match')
   readonly isHost = $derived(!!this.room && this.room.hostId === this.selfId)
+
+  /**
+   * Which screen is on, named for the analytics report — every one of them is
+   * the same address, so nothing else can tell them apart. Playing alone,
+   * playing in a room and watching somebody else play are three different
+   * things that all read `phase === 'match'`; what separates them is a room
+   * and a spectator flag.
+   */
+  readonly screen = $derived.by((): Screen => {
+    if (this.phase === 'lobby') return 'home'
+    if (this.phase === 'mp') return 'multiplayer'
+    if (this.phase === 'room') return 'room'
+    const done = this.phase === 'over'
+    if (this.match?.spectating) return done ? 'spectate-results' : 'spectate'
+    if (this.room) return done ? 'room-results' : 'room-game'
+    return done ? 'solo-results' : 'solo-game'
+  })
 
   /**
    * What the header should say about the connection. 'ok' covers the case that
