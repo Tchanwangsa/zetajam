@@ -58,6 +58,42 @@ Sitemap: ${SITE_URL}/sitemap.xml
   }
 }
 
+// Google Analytics. A measurement ID is a public identifier rather than a
+// secret, so it gets a default here the way SITE_URL does; set VITE_GA_ID to an
+// empty string to ship a build with no tag at all.
+const GA_ID = process.env.VITE_GA_ID ?? 'G-JM0R2CY4NC'
+
+// `apply: 'build'` is the whole point: a dev server reload would otherwise
+// count as a session in the same property as real traffic, and the two cannot
+// be told apart after the fact.
+function analytics(): Plugin {
+  return {
+    name: 'zetajam-analytics',
+    apply: 'build',
+    transformIndexHtml: () =>
+      GA_ID
+        ? [
+            {
+              tag: 'script',
+              attrs: { async: true, src: `https://www.googletagmanager.com/gtag/js?id=${GA_ID}` },
+              injectTo: 'head' as const,
+            },
+            {
+              tag: 'script',
+              children:
+                `window.dataLayer=window.dataLayer||[];` +
+                `function gtag(){dataLayer.push(arguments)}` +
+                // send_page_view off: lib/analytics.ts reports views itself,
+                // with the room code stripped out of the address first.
+                `gtag('js',new Date());` +
+                `gtag('config','${GA_ID}',{send_page_view:false})`,
+              injectTo: 'head' as const,
+            },
+          ]
+        : [],
+  }
+}
+
 // Two build targets out of one config:
 //
 //   vite build                  -> ../server/dist, which the Go binary embeds
@@ -66,7 +102,7 @@ Sitemap: ${SITE_URL}/sitemap.xml
 // The second is what Vercel or Cloudflare Pages builds, and it needs
 // VITE_WS_URL set to wherever the Go server actually lives — see lib/net.ts.
 export default defineConfig({
-  plugins: [svelte(), seo()],
+  plugins: [svelte(), seo(), analytics()],
   build: {
     // The Go binary embeds this directory, so it has to land inside the
     // server package — `embed` cannot reach out of its own tree.
