@@ -10,9 +10,11 @@
   let {
     rooms,
     onJoinCode,
+    onSpectate,
   }: {
     rooms: RoomBrief[]
     onJoinCode: (code: string) => void
+    onSpectate: (code: string) => void
   } = $props()
 
   const open = $derived(rooms.filter((r) => !r.playing && r.members < r.max))
@@ -25,7 +27,7 @@
   </div>
   {#if rooms.length}
     {#each rooms as r (r.code)}
-      <RoomRow room={r} {onJoinCode} />
+      <RoomRow room={r} {onJoinCode} {onSpectate} />
     {/each}
   {:else}
     <p class="empty note">

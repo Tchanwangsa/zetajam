@@ -21,6 +21,7 @@
     onCreate,
     onJoin,
     onJoinCode,
+    onSpectate,
     onCancel,
     onBack,
   }: {
@@ -33,6 +34,7 @@
     onCreate: (isPublic: boolean) => void
     onJoin: () => void
     onJoinCode: (code: string) => void
+    onSpectate: (code: string) => void
     onCancel: () => void
     onBack: () => void
   } = $props()
@@ -55,7 +57,7 @@
     <p class="err">{error}</p>
   {/if}
 
-  <Board {rooms} {onJoinCode} />
+  <Board {rooms} {onJoinCode} {onSpectate} />
 
   <button class="btn-link back" onclick={onBack}>back</button>
 {/if}

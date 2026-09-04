@@ -77,14 +77,6 @@ func main() {
 
 	hub := NewHub(*dur)
 
-	// Spectator scoreboards refresh on a slow ticker rather than on every
-	// answer — nobody watching a list needs 4Hz.
-	go func() {
-		for range time.Tick(2 * time.Second) {
-			hub.broadcastGames()
-		}
-	}()
-
 	// A room nobody is using still holds its members' sockets open, and an
 	// open socket is what this server is billed for — see roomIdle. A minute
 	// of slack either side of a fifteen-minute cutoff is nothing, and the
@@ -162,8 +154,9 @@ func init() {
 }
 
 // spa serves the built frontend, falling back to index.html so client-side
-// routes — /r/ABCD, the room deep links — survive a refresh. When the frontend
-// is hosted elsewhere this tree is a stub and only /ws and /health matter.
+// routes — /r/ABCD and /r/ABCD/spectate, the two room deep links — survive a
+// refresh. When the frontend is hosted elsewhere this tree is a stub and only
+// /ws and /health matter.
 func spa(root fs.FS) http.Handler {
 	files := http.FileServer(http.FS(root))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

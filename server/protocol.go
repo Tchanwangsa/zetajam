@@ -18,8 +18,8 @@ import "zetajam/internal/quiz"
 type inbound struct {
 	T      string `json:"t"`
 	Name   string `json:"name,omitempty"`
-	ID     string `json:"id,omitempty"`     // spectate target, or kick target
-	Code   string `json:"code,omitempty"`   // room code
+	ID     string `json:"id,omitempty"`     // kick target
+	Code   string `json:"code,omitempty"`   // room code: the one to join, or the one to watch
 	Public bool   `json:"public,omitempty"` // room.create, room.public
 
 	// The settings the player wants. Nil means "whatever the server runs by
@@ -42,14 +42,6 @@ type result struct {
 	Name    string `json:"name"`
 	Score   int    `json:"score"`
 	Flagged bool   `json:"flagged"`
-}
-
-// gameInfo is one row of the spectate list. Names and scores are parallel and
-// in match order, so a room of six reads the same way a duel does.
-type gameInfo struct {
-	ID     string   `json:"id"`
-	Names  []string `json:"names"`
-	Scores []int    `json:"scores"`
 }
 
 // roomGame is one finished run, kept for as long as the room lives. Results
@@ -110,6 +102,10 @@ type outbound struct {
 	You        *playerInfo  `json:"you,omitempty"`
 	Players    []playerInfo `json:"players,omitempty"`
 	Spectating bool         `json:"spectating,omitempty"`
+	// Which room the run is being played in. Sent on a spectator's frame only,
+	// so the address bar can say what is being watched — see setURL in
+	// web/src/lib/room.ts. A player already knows the code; they are in it.
+	Code string `json:"code,omitempty"`
 
 	// score / claim
 	ID    string `json:"id,omitempty"`
@@ -131,8 +127,7 @@ type outbound struct {
 	// rooms — the public list, sent to everyone whenever it changes
 	Rooms []roomBrief `json:"rooms,omitempty"`
 
-	// games / best / err
-	Games []gameInfo `json:"games,omitempty"`
-	Best  *result    `json:"best,omitempty"`
-	Msg   string     `json:"msg,omitempty"`
+	// best / err
+	Best *result `json:"best,omitempty"`
+	Msg  string  `json:"msg,omitempty"`
 }

@@ -116,11 +116,9 @@
       <Lobby
         bind:name={client.name}
         hints={!hinted}
-        games={client.games}
         best={client.best}
         onMulti={() => client.goMultiplayer()}
         onSolo={() => client.solo()}
-        onSpectate={(id) => client.spectate(id)}
       />
     {:else if client.phase === 'mp'}
       <Multiplayer
@@ -132,6 +130,7 @@
         onCreate={(isPublic) => client.createRoom(isPublic)}
         onJoin={() => client.joinRoom()}
         onJoinCode={(code) => client.joinRoom(code)}
+        onSpectate={(code) => client.spectate(code)}
         onCancel={() => client.cancelJoin()}
         onBack={() => client.goLobby()}
       />

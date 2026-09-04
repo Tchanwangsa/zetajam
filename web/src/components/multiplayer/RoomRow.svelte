@@ -6,25 +6,39 @@
    * Five columns that always line up, so scanning is one column at a time. A
    * shut room stays on the board — it still answers who is playing what — so
    * saying why it is shut is part of drawing a row, not an exception to it.
+   *
+   * A room mid-run is not shut any more: the door is, but the window is not,
+   * and the last column says which of the two this row opens. That is the only
+   * way in to watching somebody play — see Hub.spectate in server/hub.go.
    */
   let {
     room,
     onJoinCode,
+    onSpectate,
   }: {
     room: RoomBrief
     onJoinCode: (code: string) => void
+    onSpectate: (code: string) => void
   } = $props()
 
   const full = $derived(room.members >= room.max)
-  const shut = $derived(room.playing || full)
+  const shut = $derived(full && !room.playing)
+  const title = $derived(
+    room.playing ? 'a run is on — watch it' : full ? 'room is full' : 'join this room',
+  )
 </script>
 
-<button class="row listrow" disabled={shut} onclick={() => onJoinCode(room.code)}>
+<button
+  class="row listrow"
+  disabled={shut}
+  {title}
+  onclick={() => (room.playing ? onSpectate(room.code) : onJoinCode(room.code))}
+>
   <span class="rcode num">{room.code}</span>
   <span class="trunc">{room.host}</span>
   <span class="rcfg num trunc">{summary(room.cfg)}</span>
   <span class="rsize num" class:full>{room.members}/{room.max}</span>
-  <span class="rstate tag">{room.playing ? 'in a run' : full ? 'full' : 'join'}</span>
+  <span class="rstate tag">{room.playing ? 'watch' : full ? 'full' : 'join'}</span>
 </button>
 
 <style>

@@ -216,7 +216,6 @@ func (h *Hub) add(c *Client) {
 	}
 	c.push(msg)
 	h.broadcastPresence()
-	h.broadcastGames()
 	h.broadcastRooms()
 }
 
@@ -235,7 +234,6 @@ func (h *Hub) remove(c *Client) {
 		pushAll(gone, roomFrame)
 	}
 	h.broadcastPresence()
-	h.broadcastGames()
 	h.broadcastRooms()
 }
 
@@ -287,7 +285,6 @@ func (h *Hub) solo(c *Client, name string, cfg *quiz.Config) {
 	h.mu.Unlock()
 
 	h.announce(m)
-	h.broadcastGames()
 	h.broadcastRooms() // walking into a solo run may have emptied a public room
 }
 
@@ -661,7 +658,6 @@ func (h *Hub) roomStart(c *Client) {
 	h.mu.Unlock()
 
 	h.announce(m)
-	h.broadcastGames()
 	h.broadcastRooms() // the room is mid-run now, and the list says so
 }
 
@@ -838,17 +834,33 @@ func (h *Hub) finish(m *Match, leaver *Client) {
 	}
 	pushAll(notify, msg)
 	pushAll(roomTo, roomFrame)
-	h.broadcastGames()
 	h.broadcastRooms() // the room is open again
 	h.broadcastPresence()
 }
 
-func (h *Hub) spectate(c *Client, id string) {
+// spectate sits c down in front of somebody else's run. Addressed by the room
+// code rather than by a match id, because the code is the part a person can be
+// handed — read off the public board, or followed in as /r/QK4M/spectate — and
+// it outlives the run, where a match id is born and dies with one. A private
+// room is watchable on the same terms it is joinable: only by somebody who was
+// given the code.
+func (h *Hub) spectate(c *Client, code string) {
 	h.mu.Lock()
-	m := h.matches[id]
-	if m == nil || m.done || c.match != nil {
+	r := h.rooms[code]
+	if r == nil {
 		h.mu.Unlock()
-		c.push(outbound{T: "err", Msg: "that game is over"})
+		c.push(outbound{T: "err", Msg: "no room with that code"})
+		return
+	}
+	m := r.match
+	if m == nil || m.done {
+		h.mu.Unlock()
+		c.push(outbound{T: "err", Msg: "nothing is being played in that room"})
+		return
+	}
+	if c.match != nil {
+		h.mu.Unlock()
+		c.push(outbound{T: "err", Msg: "you are in a run of your own"})
 		return
 	}
 	h.unwatchLocked(c)
@@ -868,6 +880,7 @@ func (h *Hub) spectate(c *Client, id string) {
 		StartsInMs: time.Until(m.startAt).Milliseconds(),
 		Spectating: true,
 		Players:    roster,
+		Code:       r.code,
 	}
 	h.mu.Unlock()
 
@@ -900,7 +913,8 @@ func (h *Hub) broadcastPresence() {
 // broadcastRooms sends everyone the public board. A room that is mid-run stays
 // on it, marked, rather than blinking out and back: a list that empties itself
 // the moment a game starts reads as "nobody is here", which is the opposite of
-// what it means.
+// what it means. Its row is also the only way in to watching one — see
+// spectate — so this board is the spectate list as well as the join list.
 // reapRooms closes every room that has sat untouched for roomIdle, and tells
 // whoever was still in it why. A room in the middle of a run is left alone no
 // matter how long the run runs.
@@ -986,40 +1000,20 @@ func (h *Hub) broadcastRooms() {
 	pushAll(all, msg)
 }
 
-// gamesLocked is the spectate list: every run worth watching. Its own function
-// because the lobby asks for the same list over HTTP and two copies of "worth
-// watching" would drift. Callers hold hub.mu.
-func (h *Hub) gamesLocked() []gameInfo {
-	games := make([]gameInfo, 0, len(h.matches))
-	for _, m := range h.matches {
-		if len(m.players) < 2 || m.done {
-			continue // solo runs are not spectatable
-		}
-		g := gameInfo{ID: m.id}
-		for _, p := range m.players {
-			g.Names = append(g.Names, p.name)
-			g.Scores = append(g.Scores, p.score)
-		}
-		games = append(games, g)
-	}
-	return games
-}
-
 // lobbyView is everything the first screen shows, in one answer. The lobby
 // holds no socket — it is not playing anything and has nobody to be kept for,
 // so it asks once and slowly polls while somebody is looking at it. See
 // needsHub in web/src/lib/client.svelte.ts.
 type lobbyView struct {
-	Online  int        `json:"online"`
-	Playing int        `json:"playing"`
-	Best    *result    `json:"best,omitempty"`
-	Games   []gameInfo `json:"games,omitempty"`
+	Online  int     `json:"online"`
+	Playing int     `json:"playing"`
+	Best    *result `json:"best,omitempty"`
 }
 
 func (h *Hub) lobbyView() lobbyView {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	v := lobbyView{Online: len(h.clients), Games: h.gamesLocked()}
+	v := lobbyView{Online: len(h.clients)}
 	for c := range h.clients {
 		if c.match != nil {
 			v.Playing++
@@ -1030,19 +1024,6 @@ func (h *Hub) lobbyView() lobbyView {
 		v.Best = &best
 	}
 	return v
-}
-
-func (h *Hub) broadcastGames() {
-	h.mu.Lock()
-	games := h.gamesLocked()
-	all := make([]*Client, 0, len(h.clients))
-	for c := range h.clients {
-		all = append(all, c)
-	}
-	msg := outbound{T: "games", Games: games}
-	h.mu.Unlock()
-
-	pushAll(all, msg)
 }
 
 func (h *Hub) handle(c *Client, raw []byte) {
@@ -1061,7 +1042,7 @@ func (h *Hub) handle(c *Client, raw []byte) {
 	case "answer":
 		h.onAnswer(c, in)
 	case "spectate":
-		h.spectate(c, in.ID)
+		h.spectate(c, in.Code)
 	case "match.leave":
 		h.matchLeave(c)
 	case "room.create":

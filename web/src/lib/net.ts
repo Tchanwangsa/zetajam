@@ -18,13 +18,6 @@ export interface MatchResult {
   flagged?: boolean
 }
 
-/** One row of the spectate list. Names and scores are parallel, in match order. */
-export interface GameInfo {
-  id: string
-  names: string[]
-  scores: number[]
-}
-
 /**
  * One finished run, as the room remembers it. The results keep the ids of
  * players who have since left, so the session record does not quietly forget
@@ -75,6 +68,9 @@ export type Msg =
       /** Everyone in the run, in the order scores should be laid out. */
       players: PlayerInfo[]
       spectating?: boolean
+      /** The room the run is in. Sent to a spectator only — it is what the
+          address bar says while watching. See setURL in lib/room.ts. */
+      code?: string
     }
   // Optional because the server drops a zero-valued field rather than sending
   // it — `omitempty`.
@@ -86,8 +82,7 @@ export type Msg =
   | { t: 'claim'; i: number; id: string; score?: number; ms?: number }
   | { t: 'end'; results: MatchResult[]; best?: MatchResult }
   | { t: 'online'; online?: number; playing?: number }
-  // `omitempty`: both lists are absent when empty, not sent as [].
-  | { t: 'games'; games?: GameInfo[] }
+  // `omitempty`: an empty board is absent from the frame, not sent as [].
   | { t: 'rooms'; rooms?: RoomBrief[] }
   | { t: 'room'; room: RoomInfo }
   | { t: 'room.gone'; msg: string }

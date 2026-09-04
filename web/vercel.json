@@ -2,5 +2,8 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": "npm run build:static",
   "outputDirectory": "dist",
-  "rewrites": [{ "source": "/r/:code", "destination": "/index.html" }]
+  "rewrites": [
+    { "source": "/r/:code", "destination": "/index.html" },
+    { "source": "/r/:code/spectate", "destination": "/index.html" }
+  ]
 }

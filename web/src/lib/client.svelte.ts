@@ -1,7 +1,6 @@
 import {
   Net,
   type Claim,
-  type GameInfo,
   type MatchResult,
   type Msg,
   type PlayerInfo,
@@ -14,7 +13,7 @@ import { timeline } from './rush'
 import { question } from './questions'
 import { load, normalize, save, sig, type Config } from './config'
 import { fetchLobby } from './lobby'
-import { codeFromURL, setURL, validCode } from './room'
+import { linkFromURL, setURL, validCode } from './room'
 import type { Screen } from './analytics'
 
 /** Everything a run is, as the server handed it over. */
@@ -26,6 +25,8 @@ export interface Match {
   you?: PlayerInfo
   players: PlayerInfo[]
   spectating: boolean
+  /** The room being watched. Spectates only — see the `match` case in onMsg. */
+  code?: string
 }
 
 export type Phase = 'lobby' | 'mp' | 'room' | 'match' | 'over'
@@ -95,9 +96,10 @@ const LOCAL_ID = 'me'
  * not, but name and config are, because the server is told about both.
  */
 export class Client {
-  /** A link straight into a room skips the lobby *and* the join form. Read
-      before any state exists: it decides which screen the app opens on. */
-  private readonly deepLink = codeFromURL()
+  /** A link straight into a room skips the lobby *and* the join form; the
+      `/spectate` form skips the room too. Read before any state exists: it
+      decides which screen the app opens on. */
+  private readonly deepLink = linkFromURL()
 
   phase = $state<Phase>('lobby')
   connected = $state(false)
@@ -152,7 +154,6 @@ export class Client {
 
   online = $state(0)
   playing = $state(0)
-  games = $state<GameInfo[]>([])
   rooms = $state<RoomBrief[]>([])
   best = $state<MatchResult | undefined>()
 
@@ -256,21 +257,22 @@ export class Client {
     }
     setInterval(() => this.tick(), tickMs)
 
-    if (!this.deepLink) {
+    const { code, watch } = this.deepLink
+    if (!code) {
       this.pollLobby()
       return
     }
-    this.phase = 'mp'
-    this.joinCode = this.deepLink
-    this.joining = this.deepLink
     // A room link is an instruction, not a suggestion: following it was the
-    // click. Sent before the socket is up — Net buffers until it opens.
-    this.hub()
-    this.ask({
-      t: 'room.join',
-      code: this.deepLink,
-      name: this.#name || 'guest',
-    })
+    // click. Sent before the socket is up — Net buffers until it opens. The
+    // multiplayer screen is what a refusal lands on, either way.
+    this.phase = 'mp'
+    if (watch) {
+      this.spectate(code)
+      return
+    }
+    this.joinCode = code
+    this.joining = code
+    this.ask({ t: 'room.join', code, name: this.#name || 'guest' })
   }
 
   get name(): string {
@@ -441,7 +443,6 @@ export class Client {
       if (!v || this.phase !== 'lobby') return
       this.online = v.online
       this.playing = v.playing
-      this.games = v.games ?? []
       if (v.best) this.best = v.best
     })
   }
@@ -460,11 +461,8 @@ export class Client {
         this.online = m.online ?? 0
         this.playing = m.playing ?? 0
         break
-      // `omitempty` again: an empty list is dropped from the frame entirely,
-      // so neither of these is safe to read straight through.
-      case 'games':
-        this.games = m.games ?? []
-        break
+      // `omitempty` again: an empty board is dropped from the frame entirely,
+      // so this is not safe to read straight through.
       case 'rooms':
         this.rooms = m.rooms ?? []
         break
@@ -480,7 +478,11 @@ export class Client {
           you: m.you,
           players: m.players ?? [],
           spectating: !!m.spectating,
+          code: m.code,
         }
+        // Watching has an address of its own: /r/QK4M/spectate. Not a room we
+        // are in, so leaveRoom is never what clears it again — see leaveMatch.
+        if (this.match.spectating && m.code) setURL(m.code, true)
         // Pinned for as long as this run and its results are on screen. The
         // frame's own word for who you are, which a local run can set too and a
         // reconnect cannot spoil. See runId.
@@ -608,6 +610,8 @@ export class Client {
   leaveMatch() {
     // Nobody to tell about a run nobody else knew about.
     if (!this.local) this.ask({ t: 'match.leave' })
+    // A spectator is in nobody's room, so nothing else takes its link down.
+    if (this.match?.spectating) setURL(null)
     this.phase = this.room ? 'room' : 'lobby'
   }
 
@@ -615,6 +619,7 @@ export class Client {
     // Room first, or ending the run bounces a room frame back and lands you
     // on the room screen you just left.
     if (this.room) this.leaveRoom()
+    else setURL(null) // a spectate link, most likely; the lobby is at /
     if (this.canLeave && !this.local) this.ask({ t: 'match.leave' })
     this.phase = 'lobby'
     // Back to the one screen that pays for nothing — and the one that has to
@@ -634,8 +639,11 @@ export class Client {
     this.phase = 'room'
   }
 
-  spectate(id: string) {
-    this.ask({ t: 'spectate', id })
+  /** Watch whatever is being played in a room. Addressed by code, not by match
+      id: it is the thing the board shows and the thing a link can carry. */
+  spectate(code: string) {
+    if (!validCode(code)) return
+    this.ask({ t: 'spectate', code })
   }
 
   // --- rooms ---------------------------------------------------------------

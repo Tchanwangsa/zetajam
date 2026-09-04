@@ -1,8 +1,7 @@
 <script lang="ts">
-  import type { GameInfo, MatchResult } from '../../lib/net'
+  import type { MatchResult } from '../../lib/net'
   import NameField from '../ui/NameField.svelte'
   import Hints from './Hints.svelte'
-  import LiveGames from './LiveGames.svelte'
   import Welcome from './Welcome.svelte'
 
   /**
@@ -12,21 +11,17 @@
    */
   let {
     name = $bindable(''),
-    games = [],
     best,
     hints = false,
     onMulti,
     onSolo,
-    onSpectate,
   }: {
     name?: string
-    games?: GameInfo[]
     best?: MatchResult
     /** Draw the pointers at the settings bar — see Hints.svelte. */
     hints?: boolean
     onMulti: () => void
     onSolo: () => void
-    onSpectate: (id: string) => void
   } = $props()
 </script>
 
@@ -44,8 +39,6 @@
   {#if best}
     <p class="best num">best today — <strong>{best.score}</strong> by {best.name}</p>
   {/if}
-
-  <LiveGames {games} {onSpectate} />
 </section>
 
 <!-- Beside the column, not in it: the pointers are a fixed layer over the whole
